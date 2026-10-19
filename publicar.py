@@ -31,6 +31,7 @@ from db.controle import (
     registrar_resultado_canal,
     obter_produtos_para_reprocessamento,
     gerar_relatorio_terminal,
+    localizar_artes_produto,
     CANAIS_OBRIGATORIOS,
 )
 
@@ -132,8 +133,16 @@ def publicar_produto(
 
     # 1. Obtenção das imagens do produto
     print("🖼️  Buscando imagens do produto na Shopee...")
-    images = fetch_product_images(product_link, max_images=4) if product_link else []
-    primary_image = images[0] if images else None
+    primary_image = produto.get("image_url")
+    if not primary_image and product_link:
+        images = fetch_product_images(product_link, max_images=4, item_id=item_id)
+        if images:
+            primary_image = images[0]
+            try:
+                from db.controle import atualizar_imagem_produto
+                atualizar_imagem_produto(item_id, primary_image)
+            except Exception:
+                pass
 
     if not primary_image:
         print("⚠️ Nenhuma imagem identificada para o produto. Prosseguindo com envio de texto onde aplicável.")
@@ -148,11 +157,11 @@ def publicar_produto(
         "instagram_reels": None,
     }
 
-    # Gera artes do Instagram apenas se algum canal do Instagram ainda não foi concluído
-    artes = {}
+    # 1. Localização ou geração das artes oficiais do Instagram em db/img
+    artes = localizar_artes_produto(item_id, produto.get("pasta_artes"))
     precisa_instagram = any(status_canais.get(c) != "SUCESSO" for c in ["instagram_stories", "instagram_post", "instagram_reels"])
-    if primary_image and precisa_instagram:
-        print("🎨 Gerando artes para Instagram (Stories, Post e Reels) com template...")
+    if precisa_instagram and (not artes.get("stories") or not artes.get("post") or not artes.get("reels")):
+        print("🎨 Gerando artes oficiais para Instagram (Stories, Post e Reels) com template...")
         try:
             clean_price = price.replace("R$", "").strip() if price else "OFERTA"
             artes = gerar_todas_imagens({
@@ -165,10 +174,11 @@ def publicar_produto(
             pasta_artes_str = str(artes.get("pasta")) if artes.get("pasta") else None
             atualizar_codigo_artes(item_id, artes.get("codigo"), pasta_artes=pasta_artes_str)
             print(f"   ✅ Identificador: {artes.get('codigo')}")
-            print(f"   📁 Diretório:    {artes.get('pasta')}")
+            print(f"   📁 Salvo em db/img: {artes.get('pasta')}")
             print(f"   📸 Stories:      {artes.get('stories').name}")
             print(f"   🖼️  Post:         {artes.get('post').name}")
-            print(f"   🎬 Reels:        {artes.get('reeals').name}")
+            reels_nome = artes.get('reels', artes.get('reeals')).name if artes.get('reels') or artes.get('reeals') else 'reels'
+            print(f"   🎬 Reels:        {reels_nome}")
         except Exception as e:
             print(f"   ⚠️ Falha na geração das imagens pelo template: {e}")
 
@@ -242,6 +252,7 @@ def publicar_produto(
                 registrar_resultado_canal(item_id, "instagram_stories", "SUCESSO", id_externo=story_id, caminho_imagem=caminho_story)
                 print(f"      ✅ Stories: Publicado com imagem original! (ID: {story_id})")
             else:
+                registrar_resultado_canal(item_id, "instagram_stories", "FALHA", mensagem_erro="Imagem ausente para renderizar template de Stories", caminho_imagem=caminho_story)
                 print("      ⚠️ Stories: Ignorado (sem imagem).")
         except Exception as e:
             registrar_resultado_canal(item_id, "instagram_stories", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_story)
@@ -268,6 +279,7 @@ def publicar_produto(
                 registrar_resultado_canal(item_id, "instagram_post", "SUCESSO", id_externo=post_id, caminho_imagem=caminho_post)
                 print(f"      ✅ Post no Feed: Publicado com imagem original! (ID: {post_id})")
             else:
+                registrar_resultado_canal(item_id, "instagram_post", "FALHA", mensagem_erro="Imagem ausente para renderizar template de Post Feed", caminho_imagem=caminho_post)
                 print("      ⚠️ Post no Feed: Ignorado (sem imagem).")
         except Exception as e:
             registrar_resultado_canal(item_id, "instagram_post", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_post)
@@ -292,6 +304,7 @@ def publicar_produto(
                 registrar_resultado_canal(item_id, "instagram_reels", "SUCESSO", id_externo=reels_id, caminho_imagem=caminho_reels)
                 print(f"      ✅ Reels: Publicado com sucesso! (ID: {reels_id})")
             else:
+                registrar_resultado_canal(item_id, "instagram_reels", "FALHA", mensagem_erro="Imagem compatível ausente para renderizar Reels", caminho_imagem=caminho_reels)
                 print("      ⚠️ Reels: Ignorado (sem imagem).")
         except Exception as e:
             registrar_resultado_canal(item_id, "instagram_reels", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_reels)

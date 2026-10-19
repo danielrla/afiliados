@@ -11,43 +11,109 @@ CSV_PATH = BASE_DIR / "produtos" / "001.csv"
 USER_AGENT = "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)"
 
 
-def fetch_product_images(product_link: str, max_images: int = 5) -> list[str]:
-    """Busca as imagens de alta resolução do produto a partir da URL da Shopee."""
-    req = urllib.request.Request(product_link, headers={"User-Agent": USER_AGENT})
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            html = resp.read().decode("utf-8", "ignore")
-    except (urllib.error.URLError, TimeoutError) as e:
-        html = ""
-        try:
-            import subprocess
-            cmd = ["curl", "-sL", "-A", USER_AGENT, product_link]
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-            if res.returncode == 0:
-                html = res.stdout
-        except Exception:
-            pass
-        if not html:
-            print(f"Erro ao carregar {product_link}: {e}")
-            return []
+def _find_chrome_bin() -> str | None:
+    """Localiza o binário do Chrome ou Chromium no sistema operacional."""
+    import os
+    candidatos = [
+        os.environ.get("CHROME_PATH"),
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+    ]
+    for c in candidatos:
+        if c and Path(c).exists():
+            return c
+    return None
 
+
+def fetch_product_images(product_link: str, max_images: int = 5, item_id: str | None = None) -> list[str]:
+    """Busca as imagens de alta resolução do produto a partir da URL da Shopee via Chrome headless, API oficial ou scraping."""
+    import subprocess
     images: list[str] = []
 
-    # 1. Imagem principal via Open Graph
-    og_match = re.search(r'content=[\"\']([^\"\']+)[\"\']\s+property=[\"\']og:image[\"\']', html) or \
-               re.search(r'property=[\"\']og:image[\"\']\s+content=[\"\']([^\"\']+)[\"\']', html)
-    if og_match:
-        images.append(og_match.group(1))
+    # 1. Tentativa via Shopee Affiliate Open API se o item_id estiver disponível
+    clean_id = item_id
+    if not clean_id and product_link:
+        m = re.search(r'/(\d{8,})(?:\?|$)', product_link)
+        if m:
+            clean_id = m.group(1)
 
-    # 2. Imagens adicionais da galeria (CDN nacional e internacional da Shopee)
-    pattern_ids = re.findall(r'(?:br|sg|my|id|ph|th|vn)-[0-9]+-[a-z0-9-]+', html)
-    seen = {img.split("/")[-1] for img in images}
-    for img_id in pattern_ids:
-        if img_id not in seen:
-            seen.add(img_id)
-            images.append(f"https://down-br.img.susercontent.com/file/{img_id}")
-            if len(images) >= max_images:
-                break
+    if clean_id:
+        try:
+            from shopee.client import ShopeeAffiliateClient
+            api_client = ShopeeAffiliateClient()
+            if hasattr(api_client, "get_product_image_url"):
+                api_img = api_client.get_product_image_url(clean_id)
+                if api_img:
+                    images.append(api_img)
+        except Exception:
+            pass
+
+    # 2. Extração via Chrome / Chromium Headless (executa o JavaScript da Shopee SPA)
+    chrome_bin = _find_chrome_bin()
+    html = ""
+    if chrome_bin and product_link:
+        try:
+            cmd = [
+                chrome_bin,
+                "--headless=new",
+                "--dump-dom",
+                "--disable-gpu",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--no-first-run",
+                "--no-default-browser-check",
+                product_link,
+            ]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            if res.returncode == 0 and res.stdout:
+                html = res.stdout
+        except Exception as e:
+            print(f"Aviso: falha ao extrair DOM via Chrome headless: {e}")
+
+    # 3. Fallback via requisição HTTP direta com cabeçalhos de navegador real
+    if not html and product_link:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Referer": "https://shopee.com.br/",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        }
+        try:
+            req = urllib.request.Request(product_link, headers=headers)
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                html = resp.read().decode("utf-8", "ignore")
+        except Exception:
+            try:
+                cmd = ["curl", "-sL", "-A", headers["User-Agent"], "-e", headers["Referer"], product_link]
+                res = subprocess.run(cmd, capture_output=True, text=True, timeout=12)
+                if res.returncode == 0:
+                    html = res.stdout
+            except Exception:
+                html = ""
+
+    # 4. Extração da imagem principal via Open Graph
+    if html:
+        og_match = re.search(r'property=[\"\']og:image[\"\']\s+content=[\"\']([^\"\']+)[\"\']', html) or \
+                   re.search(r'content=[\"\']([^\"\']+)[\"\']\s+property=[\"\']og:image[\"\']', html)
+        if og_match:
+            og_url = og_match.group(1).strip()
+            # Limpa parâmetros de redimensionamento e extensões adicionais
+            og_clean = re.sub(r'(@resize.*|\.webp)$', '', og_url)
+            if og_clean not in images:
+                images.append(og_clean)
+
+        # 5. Imagens adicionais da galeria na CDN da Shopee
+        pattern_ids = re.findall(r'(?:br|sg|my|id|ph|th|vn)-[0-9]+-[a-z0-9-]+', html)
+        seen = {img.split("/")[-1].split(".")[0].split("@")[0] for img in images}
+        for img_id in pattern_ids:
+            if img_id not in seen:
+                seen.add(img_id)
+                images.append(f"https://down-br.img.susercontent.com/file/{img_id}")
+                if len(images) >= max_images:
+                    break
 
     return images
 

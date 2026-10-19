@@ -50,20 +50,40 @@ class ZApiClient:
                 return chat
         return None
 
+    def _prepare_image_payload(self, image: str | Path) -> str:
+        """Prepara o payload de imagem para a Z-API, convertendo arquivos locais para Base64 Data URI."""
+        import base64
+        caminho_local = None
+        if isinstance(image, Path):
+            caminho_local = image
+        elif isinstance(image, str) and not (image.startswith("http://") or image.startswith("https://") or image.startswith("data:")):
+            p = Path(image)
+            if p.exists():
+                caminho_local = p
+
+        if caminho_local and caminho_local.exists():
+            ext = caminho_local.suffix.lower()
+            mime = "image/png" if ext == ".png" else ("image/webp" if ext == ".webp" else "image/jpeg")
+            b64_data = base64.b64encode(caminho_local.read_bytes()).decode("ascii")
+            return f"data:{mime};base64,{b64_data}"
+
+        return str(image)
+
     def send_text(self, phone: str, message: str) -> dict:
         return self._request("POST", "send-text", {
             "phone": phone,
             "message": message,
         })
 
-    def send_image(self, phone: str, image_url: str, caption: str) -> dict:
+    def send_image(self, phone: str, image_url: str | Path, caption: str) -> dict:
+        image_payload = self._prepare_image_payload(image_url)
         return self._request("POST", "send-image", {
             "phone": phone,
-            "image": image_url,
+            "image": image_payload,
             "caption": caption,
         })
 
-    def send_to_group(self, caption: str, image_url: str | None = None, group_id: str | None = None) -> dict:
+    def send_to_group(self, caption: str, image_url: str | Path | None = None, group_id: str | None = None) -> dict:
         gid = group_id or os.environ.get("ZAPI_GROUP_ID")
         if not gid:
             grp = self.find_group_by_name("Dicas Shopee")

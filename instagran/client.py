@@ -138,6 +138,7 @@ class InstagramClient:
 
     def publish_reel_from_image(self, image_path: str | Path, caption: str, duration: int = 5) -> dict:
         """Converte imagem 9:16 em vídeo MP4 compatível com Reels e publica no Instagram."""
+        import shutil
         import subprocess
 
         image_path = Path(image_path).resolve()
@@ -145,10 +146,26 @@ class InstagramClient:
             raise FileNotFoundError(f"Imagem não encontrada: {image_path}")
 
         video_mp4 = image_path.with_suffix(".mp4")
-        ffmpeg_bin = "/opt/homebrew/bin/ffmpeg" if Path("/opt/homebrew/bin/ffmpeg").exists() else "ffmpeg"
+
+        # Se o MP4 já foi gerado anteriormente e está íntegro, reutiliza diretamente
+        if video_mp4.exists() and video_mp4.stat().st_size > 1000:
+            return self.publish_reel(video_mp4, caption)
+
+        ffmpeg_candidates = [
+            shutil.which("ffmpeg"),
+            "/usr/bin/ffmpeg",
+            "/usr/local/bin/ffmpeg",
+            "/opt/homebrew/bin/ffmpeg",
+        ]
+        ffmpeg_bin = next((c for c in ffmpeg_candidates if c and Path(c).exists()), None)
+        if not ffmpeg_bin:
+            raise FileNotFoundError(
+                "Utilitário 'ffmpeg' não encontrado no sistema ou container. "
+                "Para contêineres Docker, execute: docker compose up -d --build para instalar o ffmpeg."
+            )
 
         cmd = [
-            ffmpeg_bin,
+            str(ffmpeg_bin),
             "-y",
             "-loop", "1",
             "-i", str(image_path),

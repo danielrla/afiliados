@@ -38,6 +38,7 @@ def inicializar_banco(db_path: Path = DB_PATH) -> None:
             offer_link TEXT NOT NULL,
             product_link TEXT,
             price TEXT,
+            image_url TEXT,
             codigo_artes TEXT,
             pasta_artes TEXT,
             status_geral TEXT DEFAULT 'PENDENTE',
@@ -86,6 +87,8 @@ def inicializar_banco(db_path: Path = DB_PATH) -> None:
         cols_prod = [r["name"] for r in cursor.fetchall()]
         if "pasta_artes" not in cols_prod:
             cursor.execute("ALTER TABLE produtos ADD COLUMN pasta_artes TEXT;")
+        if "image_url" not in cols_prod:
+            cursor.execute("ALTER TABLE produtos ADD COLUMN image_url TEXT;")
 
         conn.commit()
 
@@ -110,13 +113,14 @@ def registrar_produto(produto: dict, db_path: Path = DB_PATH, ignorar_se_existir
                 return False
 
         cursor.execute("""
-        INSERT INTO produtos (item_id, item_name, offer_link, product_link, price, codigo_artes, pasta_artes, criado_em, atualizado_em)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO produtos (item_id, item_name, offer_link, product_link, price, image_url, codigo_artes, pasta_artes, criado_em, atualizado_em)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(item_id) DO UPDATE SET
             item_name=excluded.item_name,
             offer_link=excluded.offer_link,
             product_link=excluded.product_link,
             price=excluded.price,
+            image_url=COALESCE(excluded.image_url, produtos.image_url),
             codigo_artes=COALESCE(excluded.codigo_artes, produtos.codigo_artes),
             pasta_artes=COALESCE(excluded.pasta_artes, produtos.pasta_artes),
             atualizado_em=excluded.atualizado_em;
@@ -126,6 +130,7 @@ def registrar_produto(produto: dict, db_path: Path = DB_PATH, ignorar_se_existir
             produto.get("offer_link", ""),
             produto.get("product_link", ""),
             produto.get("price", ""),
+            produto.get("image_url"),
             produto.get("codigo_artes"),
             produto.get("pasta_artes"),
             agora,
@@ -133,6 +138,22 @@ def registrar_produto(produto: dict, db_path: Path = DB_PATH, ignorar_se_existir
         ))
         conn.commit()
         return True
+
+
+def atualizar_imagem_produto(item_id: str, image_url: str, db_path: Path = DB_PATH) -> None:
+    """Salva ou atualiza a URL da imagem oficial do produto no banco."""
+    inicializar_banco(db_path)
+    agora = datetime.datetime.now().isoformat()
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+        UPDATE produtos SET
+            image_url = ?,
+            atualizado_em = ?
+        WHERE item_id = ?;
+        """, (str(image_url), agora, str(item_id)))
+        conn.commit()
+
 
 
 def atualizar_codigo_artes(item_id: str, codigo_artes: str, pasta_artes: str | None = None, db_path: Path = DB_PATH) -> None:
@@ -391,6 +412,7 @@ def inserir_lote_produtos(produtos: list[dict], db_path: Path = DB_PATH) -> dict
             offer_link = get_val("offer_link", "offer link", "link oferta", "offerlink")
             product_link = get_val("product_link", "product link", "link produto", "productlink")
             price = get_val("price", "preco", "preço", "valor")
+            image_url = get_val("image_url", "image url", "image", "imagem", "foto", "product_image", "productimage", "photourl")
 
             # Fallback para extrair item_id da URL caso o cabeçalho não traga coluna explícita
             if not item_id and product_link:
@@ -418,6 +440,7 @@ def inserir_lote_produtos(produtos: list[dict], db_path: Path = DB_PATH) -> dict
                 "offer_link": offer_link,
                 "product_link": product_link,
                 "price": price,
+                "image_url": image_url or None,
             }
             inserido = registrar_produto(dados_prod, db_path, ignorar_se_existir=True)
             if inserido:
@@ -477,5 +500,56 @@ def excluir_lote_produtos(item_ids: list[str], db_path: Path = DB_PATH) -> int:
         total_removidos = cursor.rowcount
         conn.commit()
         return total_removidos
+
+
+def localizar_artes_produto(item_id: str, pasta_artes_registrada: str | None = None) -> dict[str, Path]:
+    """Localiza as artes geradas no disco (em db/img/) para evitar renderizações desnecessárias."""
+    artes = {}
+    item_id_str = str(item_id).strip()
+    pastas_candidatas = []
+
+    if pasta_artes_registrada:
+        p_cand = Path(pasta_artes_registrada)
+        if not p_cand.is_absolute():
+            p_cand = ROOT / p_cand
+        pastas_candidatas.append(p_cand)
+
+    base_db_img = ROOT / "db" / "img"
+    if base_db_img.exists():
+        for d in sorted(base_db_img.glob(f"*/{item_id_str}"), reverse=True):
+            if d.is_dir() and d not in pastas_candidatas:
+                pastas_candidatas.append(d)
+
+    legado_dir = ROOT / "instagran" / "img"
+    if legado_dir.exists() and legado_dir not in pastas_candidatas:
+        pastas_candidatas.append(legado_dir)
+
+    for pasta in pastas_candidatas:
+        if not pasta.exists():
+            continue
+
+        stories = pasta / f"{item_id_str}_stories.png"
+        post = pasta / f"{item_id_str}_post.png"
+        reeals = pasta / f"{item_id_str}_reeals.png"
+        reels_alias = pasta / f"{item_id_str}_reels.png"
+
+        if stories.exists():
+            artes["stories"] = stories
+        if post.exists():
+            artes["post"] = post
+        if reeals.exists():
+            artes["reeals"] = reeals
+            artes["reels"] = reeals
+        elif reels_alias.exists():
+            artes["reeals"] = reels_alias
+            artes["reels"] = reels_alias
+
+        if "stories" in artes and "post" in artes and "reels" in artes:
+            artes["pasta"] = pasta
+            artes["codigo"] = item_id_str
+            return artes
+
+    return artes
+
 
 

@@ -162,4 +162,6 @@ npm start
 
 * **Confinamento de Escopo:** Todas as alterações de código e manipulações de arquivos ocorrem estritamente na pasta raiz do projeto.
 * **Idempotência de Ingestão:** Ao importar produtos via planilha CSV ou interface gráfica, registros com `Item ID` já existente no banco de dados são automaticamente ignorados para evitar duplicidade e manter o histórico de auditoria intacto.
-* **Segurança de Dados:** O arquivo `.gitignore` previne a indexação acidental de credenciais (`.env`), anotações privadas, dumps de banco SQLite locais e arquivos de compilação.
+* **Extração e Cache de Fotos:** A geração de artes oficiais para Instagram extrai automaticamente a fotografia em alta resolução do produto via Chrome headless na CDN da Shopee, persistindo o arquivo em `db/img/<data>/<Item Id>/original.jpg` e na coluna `image_url` do SQLite, garantindo exibição nítida no card central dos templates.
+* **Segurança de Dados:** O arquivo `.gitignore` previne a indexação acidental de credenciais (`.env`), anotações privadas, artes geradas (`db/img/`), dumps de banco SQLite locais e arquivos de compilação.
+

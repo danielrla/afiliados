@@ -121,17 +121,28 @@ def reenviar_produto_pendente(
 
     # 1. Localização ou busca das imagens
     artes = localizar_artes_produto(item_id, pasta_artes)
-    primary_image = None
-    if product_link:
-        images = fetch_product_images(product_link, max_images=2)
+    primary_image = produto.get("image_url")
+    if not primary_image and product_link:
+        images = fetch_product_images(product_link, max_images=2, item_id=item_id)
         if images:
             primary_image = images[0]
+            try:
+                from db.controle import atualizar_imagem_produto
+                atualizar_imagem_produto(item_id, primary_image)
+            except Exception:
+                pass
 
-    # Se faltar canal do Instagram e as artes não existirem no disco, tenta gerar
+    # Verifica se as artes existentes possuem a foto original em cache
+    pasta_existente = artes.get("pasta")
+    tem_foto_original = pasta_existente and (pasta_existente / "original.jpg").exists()
+
+    # Se faltar canal do Instagram e as artes não existirem ou estiverem sem a foto original
     precisa_instagram = any(c in pendentes for c in ["instagram_stories", "instagram_post", "instagram_reels"])
-    if precisa_instagram and (not artes.get("stories") or not artes.get("post") or not artes.get("reeals")):
+    artes_incompletas = not artes.get("stories") or not artes.get("post") or not artes.get("reeals") or (not tem_foto_original and primary_image)
+
+    if precisa_instagram and artes_incompletas:
         if primary_image:
-            print("🎨 Artes locais incompletas. Gerando novas artes para Instagram com template...")
+            print("🎨 Gerando novas artes para Instagram com template e foto oficial do produto...")
             try:
                 clean_price = price.replace("R$", "").strip() if price else "OFERTA"
                 artes = gerar_todas_imagens({
@@ -148,6 +159,7 @@ def reenviar_produto_pendente(
         else:
             print("   ⚠️ Sem imagem base para gerar artes do Instagram.")
 
+
     caption = format_caption(item_name, offer_link, price)
     resultado = {"item_id": item_id, "canais": {}}
 
@@ -157,12 +169,18 @@ def reenviar_produto_pendente(
             print(f"   🔍 [DRY-RUN] Seria reenviado: {canal}")
         return resultado
 
+    story_png = artes.get("stories")
+    post_png = artes.get("post")
+    reels_png = artes.get("reeals") or artes.get("reels")
+    pasta_existente = artes.get("pasta")
+    original_img_path = (pasta_existente / "original.jpg") if (pasta_existente and (pasta_existente / "original.jpg").exists()) else None
+
     # 1. WhatsApp
     if "whatsapp" in pendentes and wa_client:
         print("💬 [1/5] Tentando reenviar WhatsApp...")
-        caminho_wa = primary_image if primary_image else None
+        caminho_wa = str(post_png) if (post_png and post_png.exists()) else (str(original_img_path) if original_img_path else (primary_image if primary_image else None))
         try:
-            res_wa = wa_client.send_to_group(caption, image_url=primary_image)
+            res_wa = wa_client.send_to_group(caption, image_url=caminho_wa)
             msg_id = res_wa.get("messageId") or res_wa.get("zaapId")
             resultado["canais"]["whatsapp"] = "SUCESSO"
             registrar_resultado_canal(item_id, "whatsapp", "SUCESSO", id_externo=msg_id, caminho_imagem=caminho_wa)
@@ -217,6 +235,8 @@ def reenviar_produto_pendente(
                 registrar_resultado_canal(item_id, "instagram_stories", "SUCESSO", id_externo=story_id, caminho_imagem=caminho_story)
                 print(f"   ✅ Stories: Sucesso com imagem original (ID: {story_id})")
             else:
+                resultado["canais"]["instagram_stories"] = "FALHA"
+                registrar_resultado_canal(item_id, "instagram_stories", "FALHA", mensagem_erro="Imagem ausente para renderizar template de Stories", caminho_imagem=caminho_story)
                 print("   ⚠️ Stories: Não foi possível enviar (sem imagem).")
         except Exception as e:
             resultado["canais"]["instagram_stories"] = "FALHA"
@@ -244,6 +264,8 @@ def reenviar_produto_pendente(
                 registrar_resultado_canal(item_id, "instagram_post", "SUCESSO", id_externo=post_id, caminho_imagem=caminho_post)
                 print(f"   ✅ Post Feed: Sucesso com imagem original (ID: {post_id})")
             else:
+                resultado["canais"]["instagram_post"] = "FALHA"
+                registrar_resultado_canal(item_id, "instagram_post", "FALHA", mensagem_erro="Imagem ausente para renderizar template de Post Feed", caminho_imagem=caminho_post)
                 print("   ⚠️ Post Feed: Não foi possível enviar (sem imagem).")
         except Exception as e:
             resultado["canais"]["instagram_post"] = "FALHA"
@@ -268,6 +290,8 @@ def reenviar_produto_pendente(
                 registrar_resultado_canal(item_id, "instagram_reels", "SUCESSO", id_externo=reels_id, caminho_imagem=caminho_reels)
                 print(f"   ✅ Reels: Sucesso (ID: {reels_id})")
             else:
+                resultado["canais"]["instagram_reels"] = "FALHA"
+                registrar_resultado_canal(item_id, "instagram_reels", "FALHA", mensagem_erro="Imagem compatível ausente para renderizar Reels", caminho_imagem=caminho_reels)
                 print("   ⚠️ Reels: Não foi possível enviar (sem imagem compatível).")
         except Exception as e:
             resultado["canais"]["instagram_reels"] = "FALHA"
@@ -333,19 +357,19 @@ def main():
     if not args.dry_run:
         print("\n🔑 Inicializando credenciais dos canais...")
         try:
-            fb_client = FacebookPageClient.from_env()
+            fb_client = FacebookPageClient()
             print("   ✅ Facebook Page API conectada.")
         except Exception as e:
             print(f"   ⚠️ Falha ao autenticar Facebook Page: {e}")
 
         try:
-            ig_client = InstagramClient.from_env()
+            ig_client = InstagramClient()
             print("   ✅ Instagram Graph API conectada.")
         except Exception as e:
             print(f"   ⚠️ Falha ao autenticar Instagram: {e}")
 
         try:
-            wa_client = ZApiClient.from_env()
+            wa_client = ZApiClient()
             print("   ✅ WhatsApp Z-API conectada.")
         except Exception as e:
             print(f"   ⚠️ Falha ao autenticar WhatsApp: {e}")

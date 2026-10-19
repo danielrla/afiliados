@@ -81,6 +81,8 @@ tmp/
 db/img/
 db/img/*
 instagran/stories_produto.png
+graphify-out/
+
 
 # --- Sistema Operacional (macOS, Windows, Linux) ---
 .DS_Store
