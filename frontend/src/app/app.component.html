@@ -1,0 +1,581 @@
+<div class="app-layout">
+  <!-- Top Navigation Header -->
+  <header class="app-header glass-panel">
+    <div class="header-brand">
+      <div class="brand-icon">🛍️</div>
+      <div>
+        <h1 class="brand-title">Afiliados Hub</h1>
+        <p class="brand-subtitle">Automação Multi-Canal Shopee</p>
+      </div>
+    </div>
+
+    <!-- Integrations Mini-Status -->
+    <div class="header-status">
+      <div class="status-chip" [class.online]="integracoes()?.whatsapp?.configurado">
+        <span class="dot"></span> WhatsApp
+      </div>
+      <div class="status-chip" [class.online]="integracoes()?.facebook?.configurado">
+        <span class="dot"></span> Facebook
+      </div>
+      <div class="status-chip" [class.online]="integracoes()?.instagram?.configurado">
+        <span class="dot"></span> Instagram
+      </div>
+      <div class="status-chip" [class.online]="integracoes()?.shopee?.configurado">
+        <span class="dot"></span> Shopee
+      </div>
+    </div>
+
+    <!-- Header Actions -->
+    <div class="header-actions">
+      <label class="dry-run-toggle" title="Executar envios sem publicar efetivamente nas APIs externas">
+        <input type="checkbox" [(ngModel)]="modoDryRun">
+        <span>Modo Simulação (Dry-Run)</span>
+      </label>
+
+      <button 
+        class="btn btn-primary" 
+        [disabled]="afiliadosService.reenviandoLote()" 
+        (click)="reenviarTodasFalhas()"
+      >
+        <span *ngIf="afiliadosService.reenviandoLote()" class="spinner"></span>
+        <span *ngIf="!afiliadosService.reenviandoLote()">🔄</span>
+        {{ afiliadosService.reenviandoLote() ? 'Reenviando...' : 'Reenviar Todas as Falhas' }}
+      </button>
+    </div>
+  </header>
+
+  <!-- Notification Banner -->
+  <div *ngIf="mensagemAlerta()" class="notification-banner" [ngClass]="mensagemAlerta()?.tipo">
+    <span>{{ mensagemAlerta()?.texto }}</span>
+    <button class="btn-close" (click)="mensagemAlerta.set(null)">✕</button>
+  </div>
+
+  <!-- Navigation Tabs -->
+  <nav class="app-tabs">
+    <button class="tab-btn" [class.active]="abaAtiva() === 'produtos'" (click)="setAba('produtos')">
+      📦 Controle de Produtos
+      <span class="tab-badge" *ngIf="estatisticas()">{{ estatisticas()?.total_produtos }}</span>
+    </button>
+    <button class="tab-btn" [class.active]="abaAtiva() === 'upload'" (click)="setAba('upload')">
+      ⬆️ Carga de Produtos (Upload CSV)
+    </button>
+    <button class="tab-btn" [class.active]="abaAtiva() === 'dashboard'" (click)="setAba('dashboard')">
+      📊 Dashboard & Métricas
+    </button>
+    <button class="tab-btn" [class.active]="abaAtiva() === 'integracoes'" (click)="setAba('integracoes')">
+      🔌 Integrações
+    </button>
+  </nav>
+
+  <!-- Main Content Area -->
+  <main class="app-main">
+    <!-- ABA 1: PRODUTOS -->
+    <section *ngIf="abaAtiva() === 'produtos'" class="section-container">
+      <!-- Toolbar: Busca e Filtros -->
+      <div class="table-toolbar glass-panel">
+        <div class="search-box">
+          <span class="search-icon">🔍</span>
+          <input 
+            type="text" 
+            class="input-control" 
+            placeholder="Buscar por nome do produto ou Item ID..." 
+            [(ngModel)]="buscaTermo" 
+            (keyup.enter)="onBuscaSubmit()"
+          >
+          <button class="btn btn-secondary" (click)="onBuscaSubmit()">Filtrar</button>
+        </div>
+
+        <div class="filters-group">
+          <label>Status:</label>
+          <select 
+            class="input-control select-control" 
+            [(ngModel)]="filtroStatus" 
+            (change)="onFiltroStatusChange(filtroStatus)"
+          >
+            <option value="TODOS">Todos os Status</option>
+            <option value="CONCLUIDO">Concluído (5/5)</option>
+            <option value="PARCIAL">Parcial</option>
+            <option value="PENDENTE">Pendente</option>
+            <option value="FALHA">Falha</option>
+          </select>
+
+          <div class="limit-selector">
+            <label>Exibir:</label>
+            <select 
+              class="input-control select-control" 
+              [ngModel]="limitePorPagina" 
+              (ngModelChange)="mudarLimite($event)"
+            >
+              <option [ngValue]="5">5</option>
+              <option [ngValue]="10">10</option>
+              <option [ngValue]="20">20</option>
+              <option [ngValue]="50">50</option>
+            </select>
+          </div>
+
+          <button class="btn btn-secondary" (click)="carregarListaProdutos()" title="Atualizar dados">
+            ↻ Atualizar
+          </button>
+        </div>
+      </div>
+
+      <!-- Barra de Ações em Lote dos Selecionados -->
+      <div *ngIf="itensSelecionados().size > 0" class="glass-panel selection-bar">
+        <div class="selection-info">
+          <span>☑️</span>
+          <strong>{{ itensSelecionados().size }} produto(s) selecionado(s)</strong>
+        </div>
+        <div class="selection-actions">
+          <button class="btn btn-secondary btn-sm" (click)="limparSelecao()">Desmarcar Todos</button>
+          <button 
+            class="btn btn-danger btn-sm" 
+            [disabled]="excluindoSelecionados()" 
+            (click)="excluirSelecionados()"
+          >
+            <span *ngIf="excluindoSelecionados()" class="spinner"></span>
+            🗑️ Excluir Selecionados
+          </button>
+          <button 
+            class="btn btn-primary btn-sm" 
+            [disabled]="enviandoSelecionados()" 
+            (click)="enviarSelecionados()"
+          >
+            <span *ngIf="enviandoSelecionados()" class="spinner"></span>
+            🚀 Enviar Selecionados
+          </button>
+        </div>
+      </div>
+
+      <!-- Tabela de Produtos -->
+      <div class="table-container glass-panel">
+        <div *ngIf="carregandoLista" class="loading-state">
+          <span class="spinner"></span>
+          <p>Carregando produtos cadastrados...</p>
+        </div>
+
+        <table *ngIf="!carregandoLista && produtosData()?.itens?.length" class="data-table">
+          <thead>
+            <tr>
+              <th style="width: 40px; text-align: center;">
+                <input 
+                  type="checkbox" 
+                  [checked]="todosDestaPaginaSelecionados()" 
+                  (change)="toggleSelectTodos($event)"
+                  title="Selecionar todos os produtos desta página"
+                  class="custom-checkbox"
+                >
+              </th>
+              <th>Item ID</th>
+              <th>Produto</th>
+              <th>Preço</th>
+              <th>Status Geral</th>
+              <th>WhatsApp</th>
+              <th>Facebook</th>
+              <th>Stories</th>
+              <th>Feed</th>
+              <th>Reels</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let item of produtosData()?.itens" class="table-row" (click)="abrirDetalhes(item.item_id)">
+              <td style="text-align: center;" (click)="$event.stopPropagation()">
+                <input 
+                  type="checkbox" 
+                  [checked]="isItemSelecionado(item.item_id)" 
+                  (change)="toggleSelectProduto(item.item_id, $event)"
+                  class="custom-checkbox"
+                >
+              </td>
+              <td class="font-mono text-muted">{{ item.item_id }}</td>
+              <td class="product-title-cell">
+                <span class="product-title" [title]="item.item_name">{{ item.item_name }}</span>
+                <a *ngIf="item.offer_link" [href]="item.offer_link" target="_blank" (click)="$event.stopPropagation()" class="link-affiliate">
+                  🔗 Link Shopee
+                </a>
+              </td>
+              <td class="price-cell">R$ {{ item.price || '--' }}</td>
+              <td>
+                <span class="badge" [ngClass]="getStatusClass(item.status_geral)">
+                  {{ item.status_geral }}
+                </span>
+              </td>
+              <td>
+                <span class="pill-canal" [ngClass]="(item.canais_status['whatsapp'] || 'PENDENTE').toLowerCase()">
+                  {{ item.canais_status['whatsapp'] || 'PENDENTE' }}
+                </span>
+              </td>
+              <td>
+                <span class="pill-canal" [ngClass]="(item.canais_status['facebook'] || 'PENDENTE').toLowerCase()">
+                  {{ item.canais_status['facebook'] || 'PENDENTE' }}
+                </span>
+              </td>
+              <td>
+                <span class="pill-canal" [ngClass]="(item.canais_status['instagram_stories'] || 'PENDENTE').toLowerCase()">
+                  {{ item.canais_status['instagram_stories'] || 'PENDENTE' }}
+                </span>
+              </td>
+              <td>
+                <span class="pill-canal" [ngClass]="(item.canais_status['instagram_post'] || 'PENDENTE').toLowerCase()">
+                  {{ item.canais_status['instagram_post'] || 'PENDENTE' }}
+                </span>
+              </td>
+              <td>
+                <span class="pill-canal" [ngClass]="(item.canais_status['instagram_reels'] || 'PENDENTE').toLowerCase()">
+                  {{ item.canais_status['instagram_reels'] || 'PENDENTE' }}
+                </span>
+              </td>
+              <td class="actions-cell" (click)="$event.stopPropagation()">
+                <button 
+                  class="btn-icon" 
+                  title="Reenviar canais pendentes deste produto" 
+                  (click)="reenviarProduto(item.item_id)"
+                >
+                  🔄
+                </button>
+                <button 
+                  class="btn-icon btn-icon-danger" 
+                  title="Excluir produto do banco" 
+                  (click)="excluirItem(item.item_id, $event)"
+                >
+                  🗑️
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- Empty State -->
+        <div *ngIf="!carregandoLista && !produtosData()?.itens?.length" class="empty-state">
+          <p class="empty-icon">📂</p>
+          <h3>Nenhum produto encontrado</h3>
+          <p class="text-muted">Faça upload de uma planilha de ofertas na aba "Carga de Produtos" para iniciar.</p>
+        </div>
+
+        <!-- Paginação -->
+        <div *ngIf="produtosData() && produtosData()!.total_paginas > 0" class="pagination-footer">
+          <span class="pagination-info">
+            Página {{ produtosData()?.pagina }} de {{ produtosData()?.total_paginas }} (Total: {{ produtosData()?.total }} produtos)
+          </span>
+          <div class="pagination-buttons">
+            <button 
+              class="page-btn" 
+              [disabled]="paginaAtual <= 1" 
+              (click)="mudarPagina(1)"
+              title="Primeira Página"
+            >
+              «
+            </button>
+            <button 
+              class="page-btn" 
+              [disabled]="paginaAtual <= 1" 
+              (click)="mudarPagina(paginaAtual - 1)"
+              title="Página Anterior"
+            >
+              ‹
+            </button>
+
+            <button 
+              *ngFor="let p of obterArrayPaginas()" 
+              class="page-btn" 
+              [class.active]="p === paginaAtual"
+              (click)="mudarPagina(p)"
+            >
+              {{ p }}
+            </button>
+
+            <button 
+              class="page-btn" 
+              [disabled]="paginaAtual >= produtosData()!.total_paginas" 
+              (click)="mudarPagina(paginaAtual + 1)"
+              title="Próxima Página"
+            >
+              ›
+            </button>
+            <button 
+              class="page-btn" 
+              [disabled]="paginaAtual >= produtosData()!.total_paginas" 
+              (click)="mudarPagina(produtosData()!.total_paginas)"
+              title="Última Página"
+            >
+              »
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ABA 2: UPLOAD DE PRODUTOS -->
+    <section *ngIf="abaAtiva() === 'upload'" class="section-container">
+      <div class="upload-container glass-panel">
+        <div>
+          <h2>Carga de Produtos via Arquivo CSV</h2>
+          <p class="text-secondary" style="margin-top: 4px;">
+            Selecione ou arraste o arquivo CSV de produtos exportado da Shopee Afiliados para alimentar a fila de publicações.
+          </p>
+        </div>
+
+        <!-- Drag & Drop Zone -->
+        <div 
+          class="drop-zone" 
+          [class.has-file]="arquivoUpload"
+          (dragover)="onDragOver($event)" 
+          (drop)="onFileDrop($event)"
+        >
+          <div *ngIf="!arquivoUpload" class="drop-prompt">
+            <span class="upload-icon">📁</span>
+            <h3>Arraste o arquivo CSV aqui</h3>
+            <p class="text-muted" style="margin-top: 6px;">ou clique nesta área para escolher do seu computador (.csv)</p>
+            <input type="file" accept=".csv" class="file-input" (change)="onFileSelect($event)">
+          </div>
+
+          <div *ngIf="arquivoUpload" class="file-selected">
+            <span class="file-icon">📄</span>
+            <div style="text-align: left;">
+              <h4 style="color: var(--text-primary); font-size: 1.05rem;">{{ nomeArquivoUpload }}</h4>
+              <p class="text-muted" style="font-size: 0.85rem;">{{ (arquivoUpload.size / 1024).toFixed(1) }} KB • Pronto para processamento</p>
+            </div>
+            <button class="btn btn-secondary btn-sm" (click)="cancelarUpload()" title="Remover e escolher outro arquivo">
+              ✕ Trocar Arquivo
+            </button>
+          </div>
+        </div>
+
+        <!-- Painel de Confirmação e Disparo da Carga -->
+        <div class="upload-action-card glass-panel" [class.ready]="arquivoUpload">
+          <div class="action-card-info">
+            <span *ngIf="arquivoUpload" class="badge badge-sucesso">✓ Arquivo Selecionado</span>
+            <span *ngIf="!arquivoUpload" class="badge badge-pendente">Aguardando Arquivo</span>
+            <span class="text-muted text-sm" *ngIf="arquivoUpload">Clique no botão para importar e atualizar o banco de dados</span>
+            <span class="text-muted text-sm" *ngIf="!arquivoUpload">Selecione uma planilha CSV acima para habilitar a carga</span>
+          </div>
+
+          <div class="action-card-buttons">
+            <button *ngIf="arquivoUpload" class="btn btn-secondary" (click)="cancelarUpload()">
+              Cancelar
+            </button>
+            <button 
+              class="btn btn-primary btn-upload-confirm" 
+              [disabled]="!arquivoUpload || uploading" 
+              (click)="confirmarUpload()"
+            >
+              <span *ngIf="uploading" class="spinner"></span>
+              <span *ngIf="!uploading">🚀</span>
+              {{ uploading ? 'Inserindo no banco de dados...' : 'Confirmar e Iniciar Carga no Banco' }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Preview da Planilha -->
+        <div *ngIf="previewUpload.length" class="preview-box">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="font-size: 1rem;">Prévia dos Registros (Primeiras 5 linhas)</h3>
+            <span class="text-muted text-xs">Conferência dos cabeçalhos detectados</span>
+          </div>
+          <div class="table-responsive">
+            <table class="preview-table">
+              <thead>
+                <tr>
+                  <th *ngFor="let key of previewUpload[0] | keyvalue">{{ key.key }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr *ngFor="let row of previewUpload">
+                  <td *ngFor="let col of row | keyvalue">{{ col.value }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="upload-actions">
+            <button class="btn btn-secondary" (click)="cancelarUpload()">Cancelar</button>
+            <button 
+              class="btn btn-primary" 
+              [disabled]="uploading" 
+              (click)="confirmarUpload()"
+            >
+              <span *ngIf="uploading" class="spinner"></span>
+              <span *ngIf="!uploading">🚀</span>
+              {{ uploading ? 'Inserindo no banco...' : 'Confirmar e Iniciar Carga no Banco' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ABA 3: DASHBOARD -->
+    <section *ngIf="abaAtiva() === 'dashboard'" class="section-container">
+      <div class="dashboard-cards">
+        <div class="stat-card glass-panel-interactive">
+          <div class="stat-header">
+            <span>Total de Produtos</span>
+            <span class="stat-icon">📦</span>
+          </div>
+          <div class="stat-value">{{ estatisticas()?.total_produtos || 0 }}</div>
+          <p class="stat-desc">Registrados no banco de dados</p>
+        </div>
+
+        <div class="stat-card glass-panel-interactive border-success">
+          <div class="stat-header">
+            <span>100% Concluídos</span>
+            <span class="stat-icon">✅</span>
+          </div>
+          <div class="stat-value text-success">{{ estatisticas()?.concluidos || 0 }}</div>
+          <p class="stat-desc">Publicados nos 5 canais obrigatórios</p>
+        </div>
+
+        <div class="stat-card glass-panel-interactive border-warning">
+          <div class="stat-header">
+            <span>Parcialmente Enviados</span>
+            <span class="stat-icon">⚠️</span>
+          </div>
+          <div class="stat-value text-warning">{{ estatisticas()?.parciais || 0 }}</div>
+          <p class="stat-desc">Ao menos 1 canal com sucesso</p>
+        </div>
+
+        <div class="stat-card glass-panel-interactive border-danger">
+          <div class="stat-header">
+            <span>Falhas / Pendentes</span>
+            <span class="stat-icon">❌</span>
+          </div>
+          <div class="stat-value text-danger">
+            {{ (estatisticas()?.falhas || 0) + (estatisticas()?.pendentes || 0) }}
+          </div>
+          <p class="stat-desc">Requerem reenvio de publicação</p>
+        </div>
+      </div>
+
+      <!-- Detalhamento por Canal -->
+      <div class="channels-grid glass-panel">
+        <h2>Entregas por Canal de Divulgação</h2>
+        <div class="channel-bars">
+          <div *ngFor="let canal of canais" class="channel-metric-row">
+            <div class="channel-label">
+              <span>{{ canal.icone }} {{ canal.nome }}</span>
+              <span class="text-muted">
+                {{ estatisticas()?.canais?.[canal.id]?.SUCESSO || 0 }} sucessos / 
+                {{ estatisticas()?.canais?.[canal.id]?.FALHA || 0 }} falhas
+              </span>
+            </div>
+            <div class="channel-progress-track">
+              <div 
+                class="channel-progress-fill fill-success" 
+                [style.width.%]="((estatisticas()?.canais?.[canal.id]?.SUCESSO || 0) / (estatisticas()?.total_produtos || 1)) * 100"
+              ></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ABA 4: INTEGRAÇÕES -->
+    <section *ngIf="abaAtiva() === 'integracoes'" class="section-container">
+      <div class="integrations-list">
+        <div class="integration-card glass-panel">
+          <div class="integration-header">
+            <span class="integration-icon">💬</span>
+            <div>
+              <h3>WhatsApp (Z-API)</h3>
+              <p class="text-muted">Envio automático para o grupo Dicas Shopee</p>
+            </div>
+            <span class="badge" [class.badge-sucesso]="integracoes()?.whatsapp?.configurado" [class.badge-falha]="!integracoes()?.whatsapp?.configurado">
+              {{ integracoes()?.whatsapp?.configurado ? 'CONECTADO' : 'PENDENTE' }}
+            </span>
+          </div>
+          <p class="integration-detail">{{ integracoes()?.whatsapp?.mensagem }}</p>
+        </div>
+
+        <div class="integration-card glass-panel">
+          <div class="integration-header">
+            <span class="integration-icon">📘</span>
+            <div>
+              <h3>Facebook Pages API</h3>
+              <p class="text-muted">Postagens automáticas com imagem e link na página do Facebook</p>
+            </div>
+            <span class="badge" [class.badge-sucesso]="integracoes()?.facebook?.configurado" [class.badge-falha]="!integracoes()?.facebook?.configurado">
+              {{ integracoes()?.facebook?.configurado ? 'CONECTADO' : 'PENDENTE' }}
+            </span>
+          </div>
+          <p class="integration-detail">{{ integracoes()?.facebook?.mensagem }}</p>
+        </div>
+
+        <div class="integration-card glass-panel">
+          <div class="integration-header">
+            <span class="integration-icon">📱</span>
+            <div>
+              <h3>Instagram Graph API</h3>
+              <p class="text-muted">Publicação em Stories, Feed de Fotos e Reels com artes personalizadas</p>
+            </div>
+            <span class="badge" [class.badge-sucesso]="integracoes()?.instagram?.configurado" [class.badge-falha]="!integracoes()?.instagram?.configurado">
+              {{ integracoes()?.instagram?.configurado ? 'CONECTADO' : 'PENDENTE' }}
+            </span>
+          </div>
+          <p class="integration-detail">{{ integracoes()?.instagram?.mensagem }}</p>
+        </div>
+
+        <div class="integration-card glass-panel">
+          <div class="integration-header">
+            <span class="integration-icon">🛍️</span>
+            <div>
+              <h3>Shopee Affiliate Open API</h3>
+              <p class="text-muted">Consulta de ofertas, links rastreáveis e metadados via GraphQL</p>
+            </div>
+            <span class="badge" [class.badge-sucesso]="integracoes()?.shopee?.configurado" [class.badge-falha]="!integracoes()?.shopee?.configurado">
+              {{ integracoes()?.shopee?.configurado ? 'CONECTADO' : 'PENDENTE' }}
+            </span>
+          </div>
+          <p class="integration-detail">{{ integracoes()?.shopee?.mensagem }}</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Modal de Detalhes do Produto e Artes -->
+  <div *ngIf="produtoSelecionado()" class="modal-backdrop" (click)="fecharModal()">
+    <div class="modal-content glass-panel" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <div>
+          <h2>{{ produtoSelecionado()?.produto?.item_name }}</h2>
+          <span class="font-mono text-muted">Item ID: {{ produtoSelecionado()?.produto?.item_id }}</span>
+        </div>
+        <button class="btn-close" (click)="fecharModal()">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="modal-section">
+          <h3>Links e Metadados</h3>
+          <p><strong>Preço:</strong> R$ {{ produtoSelecionado()?.produto?.price || '--' }}</p>
+          <p><strong>Link de Afiliado:</strong> <a [href]="produtoSelecionado()?.produto?.offer_link" target="_blank">{{ produtoSelecionado()?.produto?.offer_link }}</a></p>
+          <p *ngIf="produtoSelecionado()?.produto?.product_link">
+            <strong>Página do Produto:</strong> <a [href]="produtoSelecionado()?.produto?.product_link" target="_blank">Acessar na Shopee</a>
+          </p>
+          <p><strong>Status Geral:</strong> <span class="badge" [ngClass]="getStatusClass(produtoSelecionado()?.produto?.status_geral)">{{ produtoSelecionado()?.produto?.status_geral }}</span></p>
+        </div>
+
+        <div class="modal-section">
+          <h3>Histórico de Envios (Auditoria)</h3>
+          <div class="logs-container">
+            <div *ngFor="let log of produtoSelecionado()?.logs" class="log-item">
+              <div class="log-top">
+                <span class="badge" [class.badge-sucesso]="log.status === 'SUCESSO'" [class.badge-falha]="log.status !== 'SUCESSO'">
+                  {{ log.canal }} : {{ log.status }}
+                </span>
+                <span class="text-muted text-xs">{{ log.data_envio }}</span>
+              </div>
+              <p *ngIf="log.mensagem_erro" class="log-error">{{ log.mensagem_erro }}</p>
+              <p *ngIf="log.id_externo" class="text-xs text-muted">ID Externo: {{ log.id_externo }}</p>
+            </div>
+            <p *ngIf="!produtoSelecionado()?.logs?.length" class="text-muted">Nenhum histórico registrado ainda.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" (click)="fecharModal()">Fechar</button>
+        <button class="btn btn-primary" (click)="reenviarProduto(produtoSelecionado()!.produto.item_id)">
+          🔄 Reenviar Pendências Deste Produto
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

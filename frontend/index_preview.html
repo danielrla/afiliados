@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>Afiliados Multi-Channel Hub | Painel de Controle</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #f8fafc;
+      --bg-secondary: #f1f5f9;
+      --bg-surface: #ffffff;
+      --bg-surface-hover: #f8fafc;
+      --bg-card: #ffffff;
+      --border-subtle: #e2e8f0;
+      --border-accent: #93c5fd;
+      --border-glow: rgba(59, 130, 246, 0.15);
+      --accent-blue: #3b82f6;
+      --accent-cyan: #0284c7;
+      --accent-emerald: #10b981;
+      --accent-amber: #f59e0b;
+      --accent-rose: #f43f5e;
+      --text-primary: #1e293b;
+      --text-secondary: #475569;
+      --text-muted: #94a3b8;
+      --font-main: 'Inter', sans-serif;
+      --font-heading: 'Outfit', sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg-primary);
+      background-image: 
+        radial-gradient(circle at 10% 10%, rgba(59, 130, 246, 0.03) 0%, transparent 40%),
+        radial-gradient(circle at 90% 90%, rgba(99, 102, 241, 0.03) 0%, transparent 40%);
+      background-attachment: fixed;
+      color: var(--text-primary);
+      font-family: var(--font-main);
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .app-layout {
+      max-width: 1440px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .glass-panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05), 0 2px 6px -1px rgba(0, 0, 0, 0.02);
+    }
+    .app-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      flex-wrap: wrap;
+      gap: 16px;
+      background: #ffffff;
+    }
+    .header-brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .brand-icon {
+      font-size: 1.8rem;
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 6px 10px;
+    }
+    .brand-title {
+      font-family: var(--font-heading);
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: #1e293b;
+    }
+    .brand-subtitle { font-size: 0.8rem; color: var(--text-muted); }
+    .header-status { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .status-chip {
+      display: flex; align-items: center; gap: 6px; font-size: 0.75rem; font-weight: 500;
+      padding: 4px 10px; border-radius: 9999px; background: #fff1f2;
+      color: #e11d48; border: 1px solid #fecdd3;
+    }
+    .status-chip.online {
+      background: #ecfdf5; color: #059669; border-color: #a7f3d0;
+    }
+    .status-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .header-actions { display: flex; align-items: center; gap: 14px; }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      font-family: var(--font-main); font-weight: 600; font-size: 0.88rem;
+      padding: 9px 16px; border-radius: 8px; border: none; cursor: pointer;
+      transition: all 0.2s ease; text-decoration: none;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: #ffffff;
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); transform: translateY(-1px);
+    }
+    .btn-secondary {
+      background: #ffffff; color: var(--text-secondary); border: 1px solid var(--border-subtle);
+    }
+    .btn-secondary:hover:not(:disabled) { background: #f8fafc; color: var(--text-primary); border-color: #cbd5e1; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .app-tabs { display: flex; gap: 8px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 4px; }
+    .tab-btn {
+      display: flex; align-items: center; gap: 8px; background: transparent; border: none;
+      color: var(--text-secondary); font-family: var(--font-main); font-weight: 600; font-size: 0.9rem;
+      padding: 9px 15px; border-radius: 8px; cursor: pointer; transition: all 0.2s ease;
+    }
+    .tab-btn:hover { color: var(--text-primary); background: #f1f5f9; }
+    .tab-btn.active {
+      color: var(--accent-blue); background: #eff6ff; border-bottom: 2px solid var(--accent-blue);
+    }
+    .badge {
+      display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px;
+      font-size: 0.75rem; font-weight: 600; border-radius: 9999px; text-transform: uppercase;
+    }
+    .badge-sucesso { background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; }
+    .badge-parcial { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
+    .badge-falha { background: #fff1f2; color: #e11d48; border: 1px solid #fecdd3; }
+    .badge-pendente { background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }
+    .pill-canal {
+      display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 6px;
+      font-size: 0.72rem; font-weight: 600;
+    }
+    .pill-canal.sucesso { background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; }
+    .pill-canal.falha { background: #fff1f2; color: #e11d48; border: 1px solid #fecdd3; }
+    .pill-canal.pendente { background: #f8fafc; color: #64748b; border: 1px solid #e2e8f0; }
+    .input-control {
+      background: #ffffff; border: 1px solid #cbd5e1;
+      border-radius: 8px; color: var(--text-primary); padding: 9px 13px; font-size: 0.9rem; outline: none;
+    }
+    .input-control:focus { border-color: var(--accent-blue); box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15); }
+    .table-toolbar {
+      display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; gap: 16px; flex-wrap: wrap;
+      background: #ffffff;
+    }
+    .search-box { display: flex; align-items: center; gap: 8px; flex: 1; max-width: 520px; }
+    .data-table { width: 100%; border-collapse: collapse; text-align: left; }
+    .data-table th {
+      padding: 13px 16px; font-size: 0.78rem; text-transform: uppercase; color: var(--text-secondary);
+      background: #f8fafc; border-bottom: 1px solid var(--border-subtle);
+    }
+    .data-table td { padding: 13px 16px; font-size: 0.88rem; border-bottom: 1px solid #f1f5f9; color: var(--text-primary); }
+    .table-row:hover { background: #f8fafc; cursor: pointer; }
+    .pagination-footer {
+      display: flex; align-items: center; justify-content: space-between; padding: 14px 20px;
+      border-top: 1px solid var(--border-subtle); flex-wrap: wrap; gap: 12px; background: #ffffff;
+    }
+    .pagination-info { font-size: 0.85rem; color: var(--text-secondary); }
+    .pagination-controls { display: flex; align-items: center; gap: 6px; }
+    .page-btn {
+      background: #ffffff; color: var(--text-secondary); border: 1px solid #cbd5e1;
+      border-radius: 6px; padding: 6px 11px; font-size: 0.82rem; font-weight: 600; cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .page-btn:hover:not(:disabled) {
+      background: #f1f5f9; border-color: #94a3b8; color: var(--text-primary);
+    }
+    .page-btn.active {
+      background: #3b82f6; color: #ffffff; border-color: #3b82f6; box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
+    }
+    .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .dashboard-cards {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; margin-bottom: 20px;
+    }
+    .stat-card {
+      padding: 22px; display: flex; flex-direction: column; gap: 10px; background: #ffffff;
+      border: 1px solid var(--border-subtle); border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .stat-header { display: flex; justify-content: space-between; font-size: 0.88rem; color: var(--text-secondary); }
+    .stat-value { font-size: 2.2rem; font-family: var(--font-heading); font-weight: 700; color: #1e293b; }
+    .drop-zone {
+      border: 2px dashed #93c5fd; border-radius: 12px; padding: 50px 30px;
+      text-align: center; position: relative; background: #f8fafc; cursor: pointer;
+    }
+    .drop-zone:hover { border-color: var(--accent-blue); background: #eff6ff; }
+    .upload-icon { font-size: 3.5rem; display: block; margin-bottom: 12px; }
+    .file-input { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+    .notification-banner {
+      padding: 12px 20px; border-radius: 8px; font-size: 0.88rem; margin-bottom: 10px; display: none;
+    }
+    .notification-banner.active { display: block; }
+    .notification-banner.sucesso { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+    .notification-banner.erro { background: #fff1f2; color: #9f1239; border: 1px solid #fecdd3; }
+  </style>
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Header -->
+    <header class="app-header glass-panel">
+      <div class="header-brand">
+        <div class="brand-icon">🛍️</div>
+        <div>
+          <h1 class="brand-title">Afiliados Hub</h1>
+          <p class="brand-subtitle">Automação Multi-Canal Shopee</p>
+        </div>
+      </div>
+
+      <div class="header-status">
+        <div class="status-chip" id="chip-whatsapp"><span class="dot"></span> WhatsApp</div>
+        <div class="status-chip" id="chip-facebook"><span class="dot"></span> Facebook</div>
+        <div class="status-chip" id="chip-instagram"><span class="dot"></span> Instagram</div>
+        <div class="status-chip" id="chip-shopee"><span class="dot"></span> Shopee</div>
+      </div>
+
+      <div class="header-actions">
+        <button class="btn btn-primary" id="btn-reenviar-tudo" onclick="reenviarTodos()">
+          🔄 Reenviar Todas as Falhas
+        </button>
+      </div>
+    </header>
+
+    <div id="banner-alerta" class="notification-banner"></div>
+
+    <!-- Tabs -->
+    <nav class="app-tabs">
+      <button class="tab-btn active" id="tab-btn-produtos" onclick="trocarAba('produtos')">📦 Controle de Produtos</button>
+      <button class="tab-btn" id="tab-btn-upload" onclick="trocarAba('upload')">⬆️ Carga de Produtos (Upload CSV)</button>
+      <button class="tab-btn" id="tab-btn-dashboard" onclick="trocarAba('dashboard')">📊 Dashboard & Métricas</button>
+    </nav>
+
+    <!-- ABA 1: PRODUTOS -->
+    <section id="aba-produtos" class="section-container">
+      <div class="table-toolbar glass-panel">
+        <div class="search-box">
+          <input type="text" id="input-busca" class="input-control" placeholder="Buscar por nome ou ID..." onkeyup="if(event.key==='Enter') filtrar()">
+          <button class="btn btn-secondary" onclick="filtrar()">Buscar</button>
+        </div>
+        <div style="display:flex; gap:10px; align-items:center;">
+          <select id="select-status" class="input-control" onchange="filtrar()">
+            <option value="TODOS">Todos os Status</option>
+            <option value="CONCLUIDO">Concluído (5/5)</option>
+            <option value="PARCIAL">Parcial</option>
+            <option value="PENDENTE">Pendente</option>
+            <option value="FALHA">Falha</option>
+          </select>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <label style="font-size:0.85rem; color:var(--text-secondary);">Exibir:</label>
+            <select id="select-limite" class="input-control" onchange="mudarLimite(this.value)">
+              <option value="5">5</option>
+              <option value="10" selected>10</option>
+              <option value="20">20</option>
+              <option value="50">50</option>
+            </select>
+          </div>
+          <button class="btn btn-secondary" onclick="carregarProdutos(1)">↻ Atualizar</button>
+        </div>
+      </div>
+
+      <!-- Barra de Ações em Lote dos Selecionados -->
+      <div id="barra-selecao" class="glass-panel" style="display:none; margin-top:12px; padding:12px 20px; align-items:center; justify-content:space-between; background:rgba(59,130,246,0.15); border:1px solid rgba(59,130,246,0.4); border-radius:8px;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span style="font-size:1.1rem;">☑️</span>
+          <strong id="texto-selecionados" style="color:#93c5fd; font-size:0.95rem;">0 produto(s) selecionado(s)</strong>
+        </div>
+        <div style="display:flex; gap:10px; align-items:center;">
+          <button class="btn btn-secondary btn-sm" onclick="limparSelecao()">Desmarcar Todos</button>
+          <button class="btn btn-danger btn-sm" id="btn-excluir-selecionados" onclick="excluirSelecionados()">🗑️ Excluir Selecionados</button>
+          <button class="btn btn-primary btn-sm" id="btn-enviar-selecionados" onclick="enviarSelecionados()">🚀 Enviar Selecionados</button>
+        </div>
+      </div>
+
+      <div class="glass-panel" style="overflow-x:auto; margin-top:14px;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width:40px; text-align:center;">
+                <input type="checkbox" id="check-all" onchange="toggleSelectTodos(this.checked)" title="Selecionar todos os produtos desta página" style="cursor:pointer; width:16px; height:16px; accent-color:var(--accent-blue);">
+              </th>
+              <th>Item ID</th>
+              <th>Produto</th>
+              <th>Preço</th>
+              <th>Status Geral</th>
+              <th>WhatsApp</th>
+              <th>Facebook</th>
+              <th>Stories</th>
+              <th>Feed</th>
+              <th>Reels</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="tabela-corpo">
+            <tr><td colspan="11" style="text-align:center; padding:30px;">Carregando produtos...</td></tr>
+          </tbody>
+        </table>
+
+        <!-- Rodapé de Paginação -->
+        <div class="pagination-footer" id="paginacao-container">
+          <div class="pagination-info" id="paginacao-info">Carregando registros...</div>
+          <div class="pagination-controls" id="paginacao-botoes"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ABA 2: UPLOAD -->
+    <section id="aba-upload" class="section-container" style="display:none;">
+      <div class="glass-panel" style="padding:32px; max-width:860px; margin:0 auto; width:100%;">
+        <h2 style="font-family:var(--font-heading); margin-bottom:6px;">Carga de Produtos via Arquivo CSV</h2>
+        <p style="color:var(--text-secondary); margin-bottom:20px;">Arraste ou selecione o arquivo CSV exportado da Shopee Afiliados para alimentar a fila de publicações.</p>
+        
+        <div class="drop-zone" id="drop-zone-preview" onclick="document.getElementById('input-file-csv').click()" style="cursor:pointer; border:2px dashed #93c5fd; background:#f8fafc; border-radius:12px; padding:40px 20px; text-align:center; transition:all 0.2s ease;">
+          <span class="upload-icon" style="font-size:3rem; display:block; margin-bottom:10px;">📁</span>
+          <h3 id="drop-zone-title" style="margin-bottom:6px; font-weight:600;">Clique ou arraste o arquivo CSV aqui</h3>
+          <p id="drop-zone-desc" style="color:var(--text-muted); font-size:0.85rem;">Formatos aceitos: planilha exportada da Shopee (.csv)</p>
+          <input type="file" id="input-file-csv" accept=".csv" style="display:none;" onchange="processarArquivo(this.files[0])">
+        </div>
+
+        <!-- Painel de Confirmação da Carga (Sempre visível) -->
+        <div id="upload-action-card" style="margin-top:20px; padding:18px 24px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;">
+          <div id="upload-status-info" style="display:flex; align-items:center; gap:12px;">
+            <span id="badge-upload-status" class="badge badge-falha" style="background:#f1f5f9; color:#64748b; border:1px solid #cbd5e1;">Aguardando Arquivo</span>
+            <span id="upload-msg-detalhe" style="font-size:0.88rem; color:var(--text-secondary);">Selecione um arquivo CSV acima para habilitar o botão de carga</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <button class="btn btn-secondary" id="btn-cancelar-upload" style="display:none;" onclick="cancelarUpload()">✕ Cancelar</button>
+            <button class="btn btn-primary" id="btn-confirmar-upload" disabled onclick="enviarCSV()" style="font-size:0.95rem; padding:10px 22px; font-weight:600;">
+              🚀 Confirmar e Iniciar Carga no Banco
+            </button>
+          </div>
+        </div>
+
+        <div id="upload-tabela-preview-box" style="display:none; margin-top:22px;">
+          <h4 style="margin-bottom:10px; font-size:0.95rem;">Prévia dos Registros Identificados</h4>
+          <div style="overflow-x:auto; border:1px solid #e2e8f0; border-radius:8px;">
+            <table class="data-table" id="tabela-upload-preview" style="margin:0; font-size:0.82rem;"></table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ABA 3: DASHBOARD -->
+    <section id="aba-dashboard" class="section-container" style="display:none;">
+      <div class="dashboard-cards" id="dashboard-cards-container">
+        <!-- Preenchido via JS -->
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const API_URL = 'http://localhost:8000/api';
+    let produtosCache = [];
+    let arquivoCSVConteudo = '';
+    let arquivoCSVNome = '';
+
+    function alerta(tipo, msg) {
+      const b = document.getElementById('banner-alerta');
+      b.className = `notification-banner active ${tipo}`;
+      b.innerText = msg;
+      setTimeout(() => b.classList.remove('active'), 5000);
+    }
+
+    async function checkStatus() {
+      try {
+        const res = await fetch(`${API_URL}/integracoes/status`);
+        const data = await res.json();
+        ['whatsapp', 'facebook', 'instagram', 'shopee'].forEach(c => {
+          const el = document.getElementById(`chip-${c}`);
+          if (el && data[c] && data[c].configurado) el.classList.add('online');
+        });
+      } catch (e) {
+        console.warn('Backend API offline ou carregando:', e);
+      }
+    }
+
+    async function carregarEstatisticas() {
+      try {
+        const res = await fetch(`${API_URL}/estatisticas`);
+        const stats = await res.json();
+        const c = document.getElementById('dashboard-cards-container');
+        c.innerHTML = `
+          <div class="stat-card"><div class="stat-header"><span>Total Produtos</span><span>📦</span></div><div class="stat-value">${stats.total_produtos}</div></div>
+          <div class="stat-card"><div class="stat-header"><span>100% Concluídos</span><span>✅</span></div><div class="stat-value" style="color:#34d399">${stats.concluidos}</div></div>
+          <div class="stat-card"><div class="stat-header"><span>Parciais</span><span>⚠️</span></div><div class="stat-value" style="color:#fbbf24">${stats.parciais}</div></div>
+          <div class="stat-card"><div class="stat-header"><span>Falhas/Pendentes</span><span>❌</span></div><div class="stat-value" style="color:#f87171">${stats.falhas + stats.pendentes}</div></div>
+        `;
+      } catch (e) {
+        console.warn(e);
+      }
+    }
+
+    let paginaAtual = 1;
+    let limitePorPagina = 10;
+    let totalProdutos = 0;
+    let totalPaginas = 1;
+    const itensSelecionados = new Set();
+
+    function atualizarBarraSelecao() {
+      const barra = document.getElementById('barra-selecao');
+      const texto = document.getElementById('texto-selecionados');
+      const checkAll = document.getElementById('check-all');
+      
+      if (itensSelecionados.size > 0) {
+        barra.style.display = 'flex';
+        texto.innerText = `${itensSelecionados.size} produto(s) selecionado(s)`;
+      } else {
+        barra.style.display = 'none';
+      }
+
+      if (checkAll && produtosCache.length > 0) {
+        const todosDestaPagina = produtosCache.every(p => itensSelecionados.has(p.item_id));
+        checkAll.checked = todosDestaPagina;
+      }
+    }
+
+    function toggleSelectProduto(itemId, checked) {
+      if (checked) {
+        itensSelecionados.add(itemId);
+      } else {
+        itensSelecionados.delete(itemId);
+      }
+      atualizarBarraSelecao();
+    }
+
+    function toggleSelectTodos(checked) {
+      produtosCache.forEach(p => {
+        if (checked) {
+          itensSelecionados.add(p.item_id);
+        } else {
+          itensSelecionados.delete(p.item_id);
+        }
+      });
+      document.querySelectorAll('.check-item').forEach(cb => {
+        cb.checked = checked;
+      });
+      atualizarBarraSelecao();
+    }
+
+    function limparSelecao() {
+      itensSelecionados.clear();
+      document.querySelectorAll('.check-item').forEach(cb => cb.checked = false);
+      const checkAll = document.getElementById('check-all');
+      if (checkAll) checkAll.checked = false;
+      atualizarBarraSelecao();
+    }
+
+    async function enviarSelecionados() {
+      if (itensSelecionados.size === 0) return;
+      const ids = Array.from(itensSelecionados);
+      const btn = document.getElementById('btn-enviar-selecionados');
+      btn.disabled = true;
+      btn.innerText = 'Enviando...';
+
+      alerta('sucesso', `Iniciando disparo para ${ids.length} produto(s) selecionado(s)...`);
+
+      try {
+        const res = await fetch(`${API_URL}/produtos/enviar-selecionados`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ item_ids: ids, dry_run: false })
+        });
+        const data = await res.json();
+        alerta('sucesso', data.mensagem || 'Envio iniciado em segundo plano.');
+        limparSelecao();
+        setTimeout(carregarProdutos, 3000);
+      } catch (e) {
+        alerta('erro', 'Falha ao solicitar envio dos produtos selecionados.');
+      } finally {
+        btn.disabled = false;
+        btn.innerText = '🚀 Enviar Selecionados';
+      }
+    }
+
+    async function excluirSelecionados() {
+      if (itensSelecionados.size === 0) return;
+      const ids = Array.from(itensSelecionados);
+      if (!confirm(`Confirma a exclusão de ${ids.length} produto(s) selecionado(s) do banco de dados?`)) {
+        return;
+      }
+
+      const btn = document.getElementById('btn-excluir-selecionados');
+      btn.disabled = true;
+      btn.innerText = 'Excluindo...';
+
+      try {
+        const res = await fetch(`${API_URL}/produtos/excluir-selecionados`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ item_ids: ids })
+        });
+        const data = await res.json();
+        alerta('sucesso', data.mensagem || `${ids.length} produto(s) excluído(s) com sucesso.`);
+        limparSelecao();
+        carregarProdutos(1);
+        carregarEstatisticas();
+      } catch (e) {
+        alerta('erro', 'Falha ao excluir os produtos selecionados.');
+      } finally {
+        btn.disabled = false;
+        btn.innerText = '🗑️ Excluir Selecionados';
+      }
+    }
+
+    async function carregarProdutos(pagina) {
+      if (pagina) {
+        paginaAtual = pagina;
+      }
+      const tbody = document.getElementById('tabela-corpo');
+      try {
+        const busca = document.getElementById('input-busca').value;
+        const status = document.getElementById('select-status').value;
+        let url = `${API_URL}/produtos?pagina=${paginaAtual}&limite=${limitePorPagina}`;
+        if (busca) url += `&busca=${encodeURIComponent(busca)}`;
+        if (status && status !== 'TODOS') url += `&status=${encodeURIComponent(status)}`;
+
+        const res = await fetch(url);
+        const data = await res.json();
+        produtosCache = data.itens || [];
+        totalProdutos = data.total || 0;
+        totalPaginas = data.total_paginas || 1;
+        paginaAtual = data.pagina || 1;
+
+        if (!produtosCache.length) {
+          tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding:30px; color:#94a3b8;">Nenhum produto cadastrado no banco.</td></tr>';
+          document.getElementById('paginacao-info').innerText = '0 produtos encontrados';
+          document.getElementById('paginacao-botoes').innerHTML = '';
+          atualizarBarraSelecao();
+          return;
+        }
+
+        tbody.innerHTML = produtosCache.map(p => {
+          const cs = p.canais_status || {};
+          const isChecked = itensSelecionados.has(p.item_id) ? 'checked' : '';
+          const pill = (s) => `<span class="pill-canal ${(s||'PENDENTE').toLowerCase()}">${s||'PENDENTE'}</span>`;
+          const badgeClass = p.status_geral === 'CONCLUIDO' ? 'badge-sucesso' : (p.status_geral === 'PARCIAL' ? 'badge-parcial' : 'badge-falha');
+          return `
+            <tr class="table-row">
+              <td style="text-align:center;" onclick="event.stopPropagation()">
+                <input type="checkbox" class="check-item" value="${p.item_id}" ${isChecked} onchange="toggleSelectProduto('${p.item_id}', this.checked)" style="cursor:pointer; width:16px; height:16px; accent-color:var(--accent-blue);">
+              </td>
+              <td style="font-family:monospace; color:#94a3b8;">${p.item_id}</td>
+              <td style="max-width:280px; font-weight:500;">
+                <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${p.item_name}</div>
+                <a href="${p.offer_link}" target="_blank" style="font-size:0.75rem; color:#3b82f6;">🔗 Link Oferta Shopee</a>
+              </td>
+              <td style="color:#38bdf8; font-weight:600;">R$ ${p.price || '--'}</td>
+              <td><span class="badge ${badgeClass}">${p.status_geral}</span></td>
+              <td>${pill(cs.whatsapp)}</td>
+              <td>${pill(cs.facebook)}</td>
+              <td>${pill(cs.instagram_stories)}</td>
+              <td>${pill(cs.instagram_post)}</td>
+              <td>${pill(cs.instagram_reels)}</td>
+              <td>
+                <button class="btn btn-secondary" style="padding:4px 8px; font-size:0.75rem;" onclick="reenviarItem('${p.item_id}')">🔄 Reenviar</button>
+              </td>
+            </tr>
+          `;
+        }).join('');
+
+        atualizarBarraSelecao();
+        renderizarPaginacao();
+      } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding:30px; color:#f87171;">Erro ao conectar ao backend (http://localhost:8000). Certifique-se de que a API está rodando.</td></tr>';
+      }
+    }
+
+    function renderizarPaginacao() {
+      const inicio = (paginaAtual - 1) * limitePorPagina + 1;
+      const fim = Math.min(paginaAtual * limitePorPagina, totalProdutos);
+      document.getElementById('paginacao-info').innerText = 
+        `Exibindo ${inicio} a ${fim} de ${totalProdutos} produtos (Página ${paginaAtual} de ${totalPaginas})`;
+
+      const container = document.getElementById('paginacao-botoes');
+      let html = '';
+
+      // Botões Primeira e Anterior
+      html += `<button class="page-btn" ${paginaAtual <= 1 ? 'disabled' : ''} onclick="mudarPagina(1)" title="Primeira Página">«</button>`;
+      html += `<button class="page-btn" ${paginaAtual <= 1 ? 'disabled' : ''} onclick="mudarPagina(${paginaAtual - 1})" title="Página Anterior">‹</button>`;
+
+      // Janela de páginas
+      const maxVisiveis = 5;
+      let startPage = Math.max(1, paginaAtual - 2);
+      let endPage = Math.min(totalPaginas, startPage + maxVisiveis - 1);
+      if (endPage - startPage < maxVisiveis - 1) {
+        startPage = Math.max(1, endPage - maxVisiveis + 1);
+      }
+
+      if (startPage > 1) {
+        html += `<button class="page-btn" onclick="mudarPagina(1)">1</button>`;
+        if (startPage > 2) html += `<span style="color:var(--text-muted); padding:0 4px;">...</span>`;
+      }
+
+      for (let p = startPage; p <= endPage; p++) {
+        html += `<button class="page-btn ${p === paginaAtual ? 'active' : ''}" onclick="mudarPagina(${p})">${p}</button>`;
+      }
+
+      if (endPage < totalPaginas) {
+        if (endPage < totalPaginas - 1) html += `<span style="color:var(--text-muted); padding:0 4px;">...</span>`;
+        html += `<button class="page-btn" onclick="mudarPagina(${totalPaginas})">${totalPaginas}</button>`;
+      }
+
+      // Botões Próxima e Última
+      html += `<button class="page-btn" ${paginaAtual >= totalPaginas ? 'disabled' : ''} onclick="mudarPagina(${paginaAtual + 1})" title="Próxima Página">›</button>`;
+      html += `<button class="page-btn" ${paginaAtual >= totalPaginas ? 'disabled' : ''} onclick="mudarPagina(${totalPaginas})" title="Última Página">»</button>`;
+
+      container.innerHTML = html;
+    }
+
+    function mudarPagina(novaPagina) {
+      if (novaPagina >= 1 && novaPagina <= totalPaginas && novaPagina !== paginaAtual) {
+        carregarProdutos(novaPagina);
+      }
+    }
+
+    function mudarLimite(novoLimite) {
+      limitePorPagina = parseInt(novoLimite, 10);
+      paginaAtual = 1;
+      carregarProdutos(1);
+    }
+
+    function filtrar() {
+      paginaAtual = 1;
+      carregarProdutos(1);
+    }
+
+    async function reenviarItem(itemId) {
+      alerta('sucesso', `Disparando reenvio de pendências para item ${itemId}...`);
+      try {
+        await fetch(`${API_URL}/produtos/${itemId}/reenviar`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({dry_run: false})
+        });
+        setTimeout(carregarProdutos, 2500);
+      } catch (e) {
+        alerta('erro', 'Falha ao solicitar reenvio.');
+      }
+    }
+
+    async function reenviarTodos() {
+      alerta('sucesso', 'Rotina de reenvio em lote iniciada em segundo plano.');
+      try {
+        await fetch(`${API_URL}/produtos/reenviar-falhas`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({dry_run: false})
+        });
+        setTimeout(carregarProdutos, 3000);
+      } catch (e) {
+        alerta('erro', 'Erro ao iniciar reenvio em lote.');
+      }
+    }
+
+    function processarArquivo(file) {
+      if (!file || !file.name.endsWith('.csv')) {
+        alerta('erro', 'Por favor, selecione um arquivo válido no formato .csv');
+        return;
+      }
+      arquivoCSVNome = file.name;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        arquivoCSVConteudo = e.target.result;
+        
+        // Atualiza painel e botão de ação
+        const card = document.getElementById('upload-action-card');
+        card.style.background = '#f0fdf4';
+        card.style.borderColor = '#bbf7d0';
+
+        const badge = document.getElementById('badge-upload-status');
+        badge.className = 'badge badge-sucesso';
+        badge.innerText = '✓ Arquivo Pronto';
+
+        document.getElementById('upload-msg-detalhe').innerText = `${file.name} (${(file.size/1024).toFixed(1)} KB) pronto para importar`;
+        
+        const btnConfirmar = document.getElementById('btn-confirmar-upload');
+        btnConfirmar.disabled = false;
+        btnConfirmar.innerText = '🚀 Confirmar e Iniciar Carga no Banco';
+
+        document.getElementById('btn-cancelar-upload').style.display = 'inline-block';
+
+        document.getElementById('drop-zone-title').innerText = `📄 ${file.name}`;
+        document.getElementById('drop-zone-desc').innerText = 'Clique para selecionar outro arquivo ou confirme abaixo';
+
+        // Gera prévia dos dados
+        renderizarPreviewCSV(arquivoCSVConteudo);
+      };
+      reader.readAsText(file, 'utf-8');
+    }
+
+    function renderizarPreviewCSV(conteudo) {
+      const linhas = conteudo.split(/\r?\n/).filter(l => l.trim().length > 0);
+      if (linhas.length < 2) return;
+      const sep = linhas[0].includes(';') && !linhas[0].includes(',') ? ';' : ',';
+      const parseL = (str) => str.split(sep).map(c => c.replace(/['"]/g, '').trim());
+      const headers = parseL(linhas[0]);
+      let html = '<thead><tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr></thead><tbody>';
+      for (let i = 1; i < Math.min(linhas.length, 6); i++) {
+        const cols = parseL(linhas[i]);
+        html += '<tr>' + headers.map((_, idx) => `<td>${cols[idx] || ''}</td>`).join('') + '</tr>';
+      }
+      html += '</tbody>';
+      const tabela = document.getElementById('tabela-upload-preview');
+      tabela.innerHTML = html;
+      document.getElementById('upload-tabela-preview-box').style.display = 'block';
+    }
+
+    function cancelarUpload() {
+      arquivoCSVNome = '';
+      arquivoCSVConteudo = '';
+      document.getElementById('input-file-csv').value = '';
+      
+      const card = document.getElementById('upload-action-card');
+      card.style.background = '#f8fafc';
+      card.style.borderColor = '#e2e8f0';
+
+      const badge = document.getElementById('badge-upload-status');
+      badge.className = 'badge badge-falha';
+      badge.style.background = '#f1f5f9';
+      badge.style.color = '#64748b';
+      badge.style.borderColor = '#cbd5e1';
+      badge.innerText = 'Aguardando Arquivo';
+
+      document.getElementById('upload-msg-detalhe').innerText = 'Selecione um arquivo CSV acima para habilitar o botão de carga';
+      
+      const btnConfirmar = document.getElementById('btn-confirmar-upload');
+      btnConfirmar.disabled = true;
+      btnConfirmar.innerText = '🚀 Confirmar e Iniciar Carga no Banco';
+
+      document.getElementById('btn-cancelar-upload').style.display = 'none';
+      document.getElementById('drop-zone-title').innerText = 'Clique ou arraste o arquivo CSV aqui';
+      document.getElementById('drop-zone-desc').innerText = 'Formatos aceitos: planilha exportada da Shopee (.csv)';
+      document.getElementById('upload-tabela-preview-box').style.display = 'none';
+    }
+
+    async function enviarCSV() {
+      if (!arquivoCSVConteudo) {
+        alerta('erro', 'Nenhum arquivo CSV selecionado para carga.');
+        return;
+      }
+      const btn = document.getElementById('btn-confirmar-upload');
+      btn.disabled = true;
+      btn.innerText = '⏳ Processando carga no banco...';
+      try {
+        const res = await fetch(`${API_URL}/produtos/upload-csv`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({nome_arquivo: arquivoCSVNome, conteudo: arquivoCSVConteudo})
+        });
+        const data = await res.json();
+        alerta('sucesso', `Carga concluída com sucesso! ${data.novos_inseridos} novos itens cadastrados, ${data.duplicados_ignorados} duplicados ignorados.`);
+        cancelarUpload();
+        trocarAba('produtos');
+        carregarProdutos(1);
+        carregarEstatisticas();
+      } catch (e) {
+        alerta('erro', 'Falha no processamento do arquivo CSV.');
+      } finally {
+        btn.disabled = false;
+        btn.innerText = '🚀 Confirmar e Iniciar Carga no Banco';
+      }
+    }
+
+    function trocarAba(aba) {
+      ['produtos', 'upload', 'dashboard'].forEach(a => {
+        const sec = document.getElementById(`aba-${a}`);
+        const btn = document.getElementById(`tab-btn-${a}`);
+        if (sec) sec.style.display = (a === aba) ? 'block' : 'none';
+        if (btn) btn.classList.toggle('active', a === aba);
+      });
+      if (aba === 'dashboard') carregarEstatisticas();
+      if (aba === 'produtos') carregarProdutos();
+    }
+
+    // Drag & Drop no preview
+    const dropZone = document.getElementById('drop-zone-preview');
+    if (dropZone) {
+      dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.style.borderColor = '#3b82f6';
+        dropZone.style.background = '#eff6ff';
+      });
+      dropZone.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        dropZone.style.borderColor = '#93c5fd';
+        dropZone.style.background = '#f8fafc';
+      });
+      dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.style.borderColor = '#93c5fd';
+        dropZone.style.background = '#f8fafc';
+        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) {
+          processarArquivo(e.dataTransfer.files[0]);
+        }
+      });
+    }
+
+    // Inicialização
+    checkStatus();
+    carregarProdutos();
+    carregarEstatisticas();
+  </script>
+</body>
+</html>
