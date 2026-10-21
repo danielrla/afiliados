@@ -192,6 +192,31 @@
     .notification-banner.active { display: block; }
     .notification-banner.sucesso { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
     .notification-banner.erro { background: #fff1f2; color: #9f1239; border: 1px solid #fecdd3; }
+    
+    /* Shopee Grid & Cards */
+    .shopee-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 18px; margin-top: 16px;
+    }
+    .shopee-card {
+      display: flex; flex-direction: column; border-radius: 12px; overflow: hidden; background: #ffffff;
+      border: 1px solid var(--border-subtle); transition: transform 0.2s ease, box-shadow 0.2s ease;
+      position: relative;
+    }
+    .shopee-card:hover { transform: translateY(-3px); box-shadow: 0 8px 16px rgba(0,0,0,0.06); }
+    .shopee-card-thumb { position: relative; width: 100%; height: 200px; background: #f8fafc; overflow: hidden; }
+    .shopee-card-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .badge-comissao {
+      position: absolute; bottom: 8px; right: 8px; background: linear-gradient(135deg, #059669, #10b981);
+      color: #ffffff; font-size: 0.75rem; font-weight: 700; padding: 4px 8px; border-radius: 6px;
+    }
+    .shopee-card-info { padding: 14px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+    .shopee-tags { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .tag-sales { font-size: 0.72rem; font-weight: 600; background: #fff7ed; color: #c2410c; border: 1px solid #ffedd5; padding: 2px 6px; border-radius: 4px; }
+    .tag-rating { font-size: 0.72rem; font-weight: 600; background: #fefce8; color: #a16207; border: 1px solid #fef08a; padding: 2px 6px; border-radius: 4px; }
+    .shopee-title { font-size: 0.88rem; font-weight: 600; color: #1e293b; line-height: 1.35; height: 2.7em; overflow: hidden; }
+    .shopee-bottom { display: flex; align-items: center; justify-content: space-between; margin-top: auto; padding-top: 8px; border-top: 1px solid #f1f5f9; }
+    .border-accent-gold { border-left: 4px solid #f59e0b !important; }
+    .border-accent-emerald { border-left: 4px solid #10b981 !important; }
   </style>
 </head>
 <body>
@@ -225,6 +250,8 @@
     <!-- Tabs -->
     <nav class="app-tabs">
       <button class="tab-btn active" id="tab-btn-produtos" onclick="trocarAba('produtos')">📦 Controle de Produtos</button>
+      <button class="tab-btn" id="tab-btn-shopee" onclick="trocarAba('shopee')">🛍️ Descoberta Shopee</button>
+      <button class="tab-btn" id="tab-btn-conversoes" onclick="trocarAba('conversoes')">💰 Vendas & Conversões</button>
       <button class="tab-btn" id="tab-btn-upload" onclick="trocarAba('upload')">⬆️ Carga de Produtos (Upload CSV)</button>
       <button class="tab-btn" id="tab-btn-dashboard" onclick="trocarAba('dashboard')">📊 Dashboard & Métricas</button>
     </nav>
@@ -335,6 +362,74 @@
             <table class="data-table" id="tabela-upload-preview" style="margin:0; font-size:0.82rem;"></table>
           </div>
         </div>
+      </div>
+    </section>
+
+    <!-- ABA: DESCOBERTA SHOPEE (API GRAPHQL) -->
+    <section id="aba-shopee" class="section-container" style="display:none;">
+      <div class="table-toolbar glass-panel">
+        <div class="search-box">
+          <input type="text" id="input-shopee-busca" class="input-control" placeholder="Buscar produtos na Shopee (ex: furadeira, fone bluetooth)..." onkeyup="if(event.key==='Enter') carregarOfertasShopee(1)">
+          <button class="btn btn-secondary" onclick="carregarOfertasShopee(1)">Buscar</button>
+        </div>
+        <div style="display:flex; gap:10px; align-items:center;">
+          <select id="select-shopee-sort" class="input-control" onchange="carregarOfertasShopee(1)">
+            <option value="2">🔥 Mais Vendidos (Top Vendas)</option>
+            <option value="5">💰 Maior Taxa de Comissão</option>
+            <option value="1">🎯 Relevância Geral</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="shopee-loading" style="display:none; text-align:center; padding:50px;">
+        <p style="font-size:1.1rem; color:var(--text-secondary);">Consultando catálogo oficial da Shopee Brasil...</p>
+      </div>
+
+      <div id="shopee-grid-container" class="shopee-grid">
+        <!-- Preenchido via JS -->
+      </div>
+
+      <div id="shopee-paginacao" class="pagination-footer glass-panel" style="display:none; margin-top:20px;">
+        <button class="btn btn-secondary" id="btn-shopee-prev" onclick="mudarPaginaShopee(-1)">⬅️ Anterior</button>
+        <span id="shopee-page-info" style="font-weight:600;">Página 1</span>
+        <button class="btn btn-secondary" id="btn-shopee-next" onclick="mudarPaginaShopee(1)">Próxima ➡️</button>
+      </div>
+    </section>
+
+    <!-- ABA: VENDAS & CONVERSÕES -->
+    <section id="aba-conversoes" class="section-container" style="display:none;">
+      <div class="glass-panel" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; padding:20px; flex-wrap:wrap; gap:14px;">
+        <div>
+          <h2 style="font-family:var(--font-heading); margin-bottom:4px;">Relatório de Vendas e Comissões Shopee</h2>
+          <p style="color:var(--text-secondary); font-size:0.88rem;">Reconciliação financeira de pedidos faturados e receita gerada por canal.</p>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <button class="btn btn-secondary" onclick="carregarConversoes()">🔄 Atualizar</button>
+          <button class="btn btn-primary" id="btn-sync-conversoes" onclick="sincronizarConversoes()">⚡ Sincronizar com Shopee</button>
+        </div>
+      </div>
+
+      <div class="dashboard-cards" id="conversoes-cards-container">
+        <!-- Preenchido via JS -->
+      </div>
+
+      <div class="glass-panel" style="margin-top:20px; overflow-x:auto;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>ID Pedido</th>
+              <th>Produto</th>
+              <th>Canal</th>
+              <th>Valor Item</th>
+              <th>Comissão</th>
+              <th>Status</th>
+              <th>Data Compra</th>
+            </tr>
+          </thead>
+          <tbody id="conversoes-tbody">
+            <tr><td colspan="7" style="text-align:center; padding:30px;">Carregando conversões...</td></tr>
+          </tbody>
+        </table>
       </div>
     </section>
 
@@ -760,7 +855,7 @@
     }
 
     function trocarAba(aba) {
-      ['produtos', 'upload', 'dashboard'].forEach(a => {
+      ['produtos', 'shopee', 'conversoes', 'upload', 'dashboard'].forEach(a => {
         const sec = document.getElementById(`aba-${a}`);
         const btn = document.getElementById(`tab-btn-${a}`);
         if (sec) sec.style.display = (a === aba) ? 'block' : 'none';
@@ -768,6 +863,158 @@
       });
       if (aba === 'dashboard') carregarEstatisticas();
       if (aba === 'produtos') carregarProdutos();
+      if (aba === 'shopee') carregarOfertasShopee(1);
+      if (aba === 'conversoes') carregarConversoes();
+    }
+
+    let shopeePaginaAtual = 1;
+    let shopeeHasNextPage = false;
+
+    async function carregarOfertasShopee(pagina = 1) {
+      shopeePaginaAtual = pagina;
+      const busca = document.getElementById('input-shopee-busca').value.trim();
+      const sort = document.getElementById('select-shopee-sort').value;
+      const loading = document.getElementById('shopee-loading');
+      const container = document.getElementById('shopee-grid-container');
+      const paginacao = document.getElementById('shopee-paginacao');
+
+      loading.style.display = 'block';
+      container.innerHTML = '';
+      paginacao.style.display = 'none';
+
+      try {
+        let url = `${API_URL}/shopee/ofertas?page=${pagina}&limit=16&sort_type=${sort}`;
+        if (busca) url += `&keyword=${encodeURIComponent(busca)}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        loading.style.display = 'none';
+
+        if (!data.items || data.items.length === 0) {
+          container.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:40px; color:var(--text-muted);">Nenhuma oferta encontrada na Shopee com os critérios informados.</div>';
+          return;
+        }
+
+        shopeeHasNextPage = data.has_next_page;
+        container.innerHTML = data.items.map(it => `
+          <div class="shopee-card glass-panel">
+            <div class="shopee-card-thumb">
+              <img src="${it.image_url}" alt="${it.product_name}" loading="lazy">
+              <span class="badge-comissao">+${(parseFloat(it.commission_rate) * 100).toFixed(0)}% Comiss. (~R$ ${it.commission})</span>
+            </div>
+            <div class="shopee-card-info">
+              <div class="shopee-tags">
+                ${it.sales > 0 ? `<span class="tag-sales">🔥 ${it.sales} vendas</span>` : ''}
+                ${it.rating_star > 0 ? `<span class="tag-rating">⭐ ${it.rating_star}</span>` : ''}
+              </div>
+              <h4 class="shopee-title" title="${it.product_name}">${it.product_name}</h4>
+              <p style="font-size:0.75rem; color:var(--text-muted); margin:0;">Loja: ${it.shop_name || 'Shopee'}</p>
+              <div class="shopee-bottom">
+                <span class="font-bold" style="font-size:1.15rem; color:#0f172a;">R$ ${it.price}</span>
+                <div style="display:flex; gap:6px;">
+                  <button class="btn btn-primary" style="padding:5px 12px; font-size:0.8rem;" onclick='importarOferta(${JSON.stringify(it).replace(/'/g, "&#39;")})'>📥 Importar</button>
+                  <a href="${it.offer_link}" target="_blank" class="btn btn-secondary" style="padding:5px 9px; font-size:0.8rem;" title="Abrir Link Shopee">🔗</a>
+                </div>
+              </div>
+            </div>
+          </div>
+        `).join('');
+
+        paginacao.style.display = 'flex';
+        document.getElementById('shopee-page-info').innerText = `Página ${pagina}`;
+        document.getElementById('btn-shopee-prev').disabled = (pagina <= 1);
+        document.getElementById('btn-shopee-next').disabled = !shopeeHasNextPage;
+      } catch (e) {
+        loading.style.display = 'none';
+        container.innerHTML = `<div style="grid-column:1/-1; text-align:center; padding:30px; color:#e11d48;">Falha ao consultar API da Shopee: ${e.message}</div>`;
+      }
+    }
+
+    function mudarPaginaShopee(delta) {
+      const nova = shopeePaginaAtual + delta;
+      if (nova >= 1) carregarOfertasShopee(nova);
+    }
+
+    async function importarOferta(item) {
+      try {
+        const res = await fetch(`${API_URL}/shopee/importar-ofertas`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({itens: [item]})
+        });
+        const data = await res.json();
+        alerta('sucesso', `"${item.product_name.substring(0, 30)}..." importado para o Hub!`);
+        carregarEstatisticas();
+      } catch (e) {
+        alerta('erro', 'Falha ao importar oferta.');
+      }
+    }
+
+    async function carregarConversoes() {
+      const tbody = document.getElementById('conversoes-tbody');
+      const cards = document.getElementById('conversoes-cards-container');
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:30px;">Carregando conversões...</td></tr>';
+      try {
+        const res = await fetch(`${API_URL}/shopee/conversoes?limite=50`);
+        const data = await res.json();
+        const resumo = data.resumo || {};
+        cards.innerHTML = `
+          <div class="stat-card border-accent-gold">
+            <div class="stat-header"><span>Comissão Confirmada</span><span>💰</span></div>
+            <div class="stat-value" style="color:#b45309;">R$ ${(resumo.total_comissao_reais || 0).toFixed(2)}</div>
+          </div>
+          <div class="stat-card border-accent-emerald">
+            <div class="stat-header"><span>Faturamento Gerado</span><span>💵</span></div>
+            <div class="stat-value" style="color:#059669;">R$ ${(resumo.total_vendas_reais || 0).toFixed(2)}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header"><span>Pedidos Faturados</span><span>📦</span></div>
+            <div class="stat-value">${resumo.total_pedidos || 0}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header"><span>Itens Reconciliados</span><span>📊</span></div>
+            <div class="stat-value">${data.conversoes?.length || 0}</div>
+          </div>
+        `;
+
+        if (!data.conversoes || data.conversoes.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:30px; color:var(--text-muted);">Nenhuma conversão registrada ainda. Clique em "Sincronizar com Shopee" para buscar pedidos.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = data.conversoes.map(c => `
+          <tr class="table-row">
+            <td style="font-family:monospace; font-size:0.8rem;">${c.order_id || c.conversion_id}</td>
+            <td>
+              <span class="font-bold" style="font-size:0.88rem;">${c.item_name || 'Item ' + c.item_id}</span>
+              <span style="font-family:monospace; color:var(--text-muted); font-size:0.75rem; display:block;">ID: ${c.item_id}</span>
+            </td>
+            <td><span class="status-chip">${c.channel_type || 'Geral'}</span></td>
+            <td class="font-bold">R$ ${(c.item_price || 0).toFixed(2)}</td>
+            <td class="font-bold" style="color:#059669;">R$ ${(c.item_commission || 0).toFixed(2)}</td>
+            <td><span class="badge ${c.order_status === 'COMPLETED' ? 'badge-sucesso' : (c.order_status === 'CANCELLED' ? 'badge-falha' : 'badge-parcial')}">${c.order_status}</span></td>
+            <td style="font-size:0.75rem; color:var(--text-muted);">${c.purchase_time}</td>
+          </tr>
+        `).join('');
+      } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#e11d48;">Erro ao carregar conversões: ${e.message}</td></tr>`;
+      }
+    }
+
+    async function sincronizarConversoes() {
+      const btn = document.getElementById('btn-sync-conversoes');
+      btn.disabled = true;
+      btn.innerText = '⚡ Sincronizando...';
+      try {
+        const res = await fetch(`${API_URL}/shopee/sincronizar-conversoes?limit=50`, {method: 'POST'});
+        const data = await res.json();
+        alerta('sucesso', data.mensagem || 'Conversões sincronizadas com sucesso!');
+        carregarConversoes();
+      } catch (e) {
+        alerta('erro', 'Falha ao sincronizar conversões da Shopee.');
+      } finally {
+        btn.disabled = false;
+        btn.innerText = '⚡ Sincronizar com Shopee';
+      }
     }
 
     // Drag & Drop no preview

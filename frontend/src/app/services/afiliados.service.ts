@@ -8,6 +8,9 @@ import {
   DetalheProdutoResposta,
   UploadResultado,
   IntegracoesResposta,
+  ShopeeOfertaItem,
+  ShopeeOfertasResposta,
+  ShopeeConversoesResposta,
 } from '../models/produto.model';
 
 @Injectable({
@@ -130,5 +133,62 @@ export class AfiliadosService {
    */
   getIntegracoesStatus(): Observable<IntegracoesResposta> {
     return this.http.get<IntegracoesResposta>(`${this.baseUrl}/integracoes/status`);
+  }
+
+  /**
+   * Consulta o catálogo de ofertas da Shopee Affiliate Open API em tempo real.
+   */
+  buscarOfertasShopee(
+    keyword?: string,
+    sortType: number = 2,
+    page: number = 1,
+    limit: number = 20,
+    itemId?: number
+  ): Observable<ShopeeOfertasResposta> {
+    let params = new HttpParams()
+      .set('sort_type', sortType.toString())
+      .set('page', page.toString())
+      .set('limit', limit.toString());
+
+    if (keyword && keyword.trim()) {
+      params = params.set('keyword', keyword.trim());
+    }
+    if (itemId) {
+      params = params.set('item_id', itemId.toString());
+    }
+
+    return this.http.get<ShopeeOfertasResposta>(`${this.baseUrl}/shopee/ofertas`, { params });
+  }
+
+  /**
+   * Importa ofertas selecionadas da Shopee diretamente para o banco de dados.
+   */
+  importarOfertasShopee(itens: ShopeeOfertaItem[]): Observable<{ sucesso: boolean; total_importados: number; mensagem: string }> {
+    return this.http.post<{ sucesso: boolean; total_importados: number; mensagem: string }>(
+      `${this.baseUrl}/shopee/importar-ofertas`,
+      { itens }
+    ).pipe(
+      tap(() => this.carregarEstatisticas().subscribe())
+    );
+  }
+
+  /**
+   * Retorna histórico consolidado e pedidos faturados da Shopee.
+   */
+  getShopeeConversoes(limite: number = 50): Observable<ShopeeConversoesResposta> {
+    const params = new HttpParams().set('limite', limite.toString());
+    return this.http.get<ShopeeConversoesResposta>(`${this.baseUrl}/shopee/conversoes`, { params });
+  }
+
+  /**
+   * Dispara a sincronização e reconciliação contábil de conversões com a Shopee.
+   */
+  sincronizarShopeeConversoes(limit: number = 50): Observable<{ sucesso: boolean; total_sincronizados: number; mensagem: string }> {
+    const params = new HttpParams().set('limit', limit.toString());
+    return this.http.post<{ sucesso: boolean; total_sincronizados: number; mensagem: string }>(
+      `${this.baseUrl}/shopee/sincronizar-conversoes`,
+      {},
+      { params }
+    );
   }
 }

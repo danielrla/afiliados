@@ -82,3 +82,50 @@ export interface IntegracoesResposta {
   instagram: IntegracaoStatus;
   shopee: IntegracaoStatus;
 }
+
+export interface ShopeeOfertaItem {
+  item_id: number;
+  product_name: string;
+  price: string;
+  commission_rate: string;
+  commission: string;
+  sales: number;
+  rating_star: number;
+  image_url: string;
+  product_link: string;
+  offer_link: string;
+  shop_name: string;
+  shop_id: number;
+  selecionado?: boolean;
+}
+
+export interface ShopeeOfertasResposta {
+  items: ShopeeOfertaItem[];
+  page: number;
+  limit: number;
+  has_next_page: boolean;
+}
+
+export interface ShopeeConversaoItem {
+  conversion_id: string;
+  order_id: string;
+  item_id: string;
+  item_name: string;
+  item_price: number;
+  item_commission: number;
+  order_status: string;
+  channel_type?: string;
+  purchase_time: string;
+  criado_em: string;
+}
+
+export interface ShopeeConversoesResposta {
+  resumo: {
+    total_pedidos: number;
+    total_comissao_reais: number;
+    total_vendas_reais: number;
+    pedidos_por_status: { [status: string]: number };
+    comissao_por_canal: { channel_type: string; qtd: number; comissao: number }[];
+  };
+  conversoes: ShopeeConversaoItem[];
+}

@@ -8,9 +8,11 @@ import {
   ResumoEstatisticas,
   DetalheProdutoResposta,
   IntegracoesResposta,
+  ShopeeOfertaItem,
+  ShopeeConversoesResposta,
 } from './models/produto.model';
 
-type AbaAtiva = 'produtos' | 'upload' | 'dashboard' | 'integracoes';
+type AbaAtiva = 'produtos' | 'upload' | 'shopee' | 'conversoes' | 'dashboard' | 'integracoes';
 
 @Component({
   selector: 'app-root',
@@ -50,6 +52,21 @@ export class AppComponent implements OnInit {
   itensSelecionados = signal<Set<string>>(new Set());
   enviandoSelecionados = signal<boolean>(false);
   excluindoSelecionados = signal<boolean>(false);
+
+  // Módulo Descoberta Shopee
+  shopeeOfertas = signal<ShopeeOfertaItem[]>([]);
+  shopeePagina = signal<number>(1);
+  shopeeBusca = '';
+  shopeeSortType = 2; // 2=vendas, 5=comissão, 1=relevância
+  shopeeCarregando = signal<boolean>(false);
+  shopeeImportando = signal<boolean>(false);
+  shopeeHasNext = signal<boolean>(false);
+  shopeeSelecionados = signal<Set<number>>(new Set());
+
+  // Módulo Relatório de Conversões
+  conversoesData = signal<ShopeeConversoesResposta | null>(null);
+  conversoesCarregando = signal<boolean>(false);
+  sincronizandoConversoes = signal<boolean>(false);
 
   readonly canais = [
     { id: 'whatsapp', nome: 'WhatsApp', icone: '💬' },
@@ -96,6 +113,118 @@ export class AppComponent implements OnInit {
 
   setAba(aba: AbaAtiva): void {
     this.abaAtiva.set(aba);
+    if (aba === 'shopee' && this.shopeeOfertas().length === 0) {
+      this.carregarOfertasShopee();
+    }
+    if (aba === 'conversoes' && !this.conversoesData()) {
+      this.carregarConversoes();
+    }
+  }
+
+  carregarOfertasShopee(pagina: number = 1): void {
+    this.shopeeCarregando.set(true);
+    this.shopeePagina.set(pagina);
+    this.afiliadosService
+      .buscarOfertasShopee(this.shopeeBusca, this.shopeeSortType, pagina, 18)
+      .subscribe({
+        next: (res) => {
+          this.shopeeOfertas.set(res.items || []);
+          this.shopeeHasNext.set(res.has_next_page);
+          this.shopeeCarregando.set(false);
+          this.shopeeSelecionados.set(new Set());
+        },
+        error: (err) => {
+          this.mostrarAlerta('erro', 'Falha ao buscar ofertas na Shopee API: ' + (err.error?.detail || err.message));
+          this.shopeeCarregando.set(false);
+        },
+      });
+  }
+
+  onShopeeBuscaSubmit(): void {
+    this.carregarOfertasShopee(1);
+  }
+
+  toggleSelecionarOferta(itemId: number): void {
+    const atual = new Set(this.shopeeSelecionados());
+    if (atual.has(itemId)) {
+      atual.delete(itemId);
+    } else {
+      atual.add(itemId);
+    }
+    this.shopeeSelecionados.set(atual);
+  }
+
+  toggleSelecionarTodasOfertas(): void {
+    const atual = this.shopeeSelecionados();
+    const todas = this.shopeeOfertas();
+    if (atual.size === todas.length && todas.length > 0) {
+      this.shopeeSelecionados.set(new Set());
+    } else {
+      this.shopeeSelecionados.set(new Set(todas.map((o) => o.item_id)));
+    }
+  }
+
+  importarOfertaUnica(oferta: ShopeeOfertaItem): void {
+    this.shopeeImportando.set(true);
+    this.afiliadosService.importarOfertasShopee([oferta]).subscribe({
+      next: (res) => {
+        this.shopeeImportando.set(false);
+        const nomeCurto = oferta.product_name.length > 30 ? oferta.product_name.substring(0, 30) + '...' : oferta.product_name;
+        this.mostrarAlerta('sucesso', `"${nomeCurto}" importado para o Hub!`);
+        this.carregarDados();
+      },
+      error: (err) => {
+        this.shopeeImportando.set(false);
+        this.mostrarAlerta('erro', 'Erro ao importar oferta: ' + (err.error?.detail || err.message));
+      },
+    });
+  }
+
+  importarOfertasSelecionadas(): void {
+    const selIds = this.shopeeSelecionados();
+    if (selIds.size === 0) return;
+    const ofertas = this.shopeeOfertas().filter((o) => selIds.has(o.item_id));
+    this.shopeeImportando.set(true);
+    this.afiliadosService.importarOfertasShopee(ofertas).subscribe({
+      next: (res) => {
+        this.shopeeImportando.set(false);
+        this.mostrarAlerta('sucesso', `${res.total_importados} oferta(s) importada(s) com sucesso para o banco de dados!`);
+        this.shopeeSelecionados.set(new Set());
+        this.carregarDados();
+      },
+      error: (err) => {
+        this.shopeeImportando.set(false);
+        this.mostrarAlerta('erro', 'Erro ao importar ofertas: ' + (err.error?.detail || err.message));
+      },
+    });
+  }
+
+  carregarConversoes(): void {
+    this.conversoesCarregando.set(true);
+    this.afiliadosService.getShopeeConversoes(50).subscribe({
+      next: (data) => {
+        this.conversoesData.set(data);
+        this.conversoesCarregando.set(false);
+      },
+      error: () => {
+        this.conversoesCarregando.set(false);
+      },
+    });
+  }
+
+  sincronizarConversoes(): void {
+    this.sincronizandoConversoes.set(true);
+    this.afiliadosService.sincronizarShopeeConversoes(50).subscribe({
+      next: (res) => {
+        this.sincronizandoConversoes.set(false);
+        this.mostrarAlerta('sucesso', res.mensagem);
+        this.carregarConversoes();
+      },
+      error: (err) => {
+        this.sincronizandoConversoes.set(false);
+        this.mostrarAlerta('erro', 'Falha ao sincronizar com Shopee: ' + (err.error?.detail || err.message));
+      },
+    });
   }
 
   onBuscaSubmit(): void {

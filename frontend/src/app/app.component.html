@@ -56,6 +56,13 @@
       📦 Controle de Produtos
       <span class="tab-badge" *ngIf="estatisticas()">{{ estatisticas()?.total_produtos }}</span>
     </button>
+    <button class="tab-btn" [class.active]="abaAtiva() === 'shopee'" (click)="setAba('shopee')">
+      🛍️ Descoberta Shopee
+      <span class="tab-badge" *ngIf="shopeeOfertas().length > 0">{{ shopeeOfertas().length }}</span>
+    </button>
+    <button class="tab-btn" [class.active]="abaAtiva() === 'conversoes'" (click)="setAba('conversoes')">
+      💰 Vendas & Conversões
+    </button>
     <button class="tab-btn" [class.active]="abaAtiva() === 'upload'" (click)="setAba('upload')">
       ⬆️ Carga de Produtos (Upload CSV)
     </button>
@@ -525,6 +532,260 @@
             </span>
           </div>
           <p class="integration-detail">{{ integracoes()?.shopee?.mensagem }}</p>
+        </div>
+    <!-- ABA: DESCOBERTA SHOPEE (API GRAPHQL EM TEMPO REAL) -->
+    <section *ngIf="abaAtiva() === 'shopee'" class="section-container">
+      <div class="table-toolbar glass-panel">
+        <div class="search-box">
+          <span class="search-icon">🔍</span>
+          <input 
+            type="text" 
+            class="input-control" 
+            placeholder="Pesquisar ofertas na Shopee (ex: fone bluetooth, parafusadeira, natal)..." 
+            [(ngModel)]="shopeeBusca" 
+            (keyup.enter)="onShopeeBuscaSubmit()"
+          >
+          <button *ngIf="shopeeBusca" class="btn-clear" (click)="shopeeBusca = ''; onShopeeBuscaSubmit()">✕</button>
+        </div>
+
+        <div class="filter-group">
+          <label>Ordenar por:</label>
+          <select class="input-control select-control" [(ngModel)]="shopeeSortType" (change)="onShopeeBuscaSubmit()">
+            <option [ngValue]="2">🔥 Mais Vendidos (Top Vendas)</option>
+            <option [ngValue]="5">💰 Maior Taxa de Comissão</option>
+            <option [ngValue]="1">🎯 Relevância Geral</option>
+          </select>
+        </div>
+
+        <button class="btn btn-secondary" (click)="onShopeeBuscaSubmit()" [disabled]="shopeeCarregando()">
+          <span *ngIf="shopeeCarregando()" class="spinner"></span>
+          <span *ngIf="!shopeeCarregando()">🔍</span> Buscar Ofertas
+        </button>
+
+        <div class="toolbar-actions" *ngIf="shopeeOfertas().length > 0">
+          <button 
+            class="btn btn-success" 
+            [disabled]="shopeeSelecionados().size === 0 || shopeeImportando()" 
+            (click)="importarOfertasSelecionadas()"
+          >
+            <span *ngIf="shopeeImportando()" class="spinner"></span>
+            <span *ngIf="!shopeeImportando()">📥</span>
+            Importar Selecionadas ({{ shopeeSelecionados().size }})
+          </button>
+        </div>
+      </div>
+
+      <!-- Barra de Ação Coletiva -->
+      <div class="selection-bar glass-panel" *ngIf="shopeeOfertas().length > 0">
+        <label class="checkbox-container">
+          <input 
+            type="checkbox" 
+            [checked]="shopeeSelecionados().size === shopeeOfertas().length && shopeeOfertas().length > 0" 
+            (change)="toggleSelecionarTodasOfertas()"
+          >
+          <span>Selecionar Todas as {{ shopeeOfertas().length }} Ofertas</span>
+        </label>
+        <span class="text-muted text-xs">Exibindo ofertas em tempo real direto da Shopee Affiliate Open API</span>
+      </div>
+
+      <!-- Loading State -->
+      <div *ngIf="shopeeCarregando()" class="loading-state glass-panel">
+        <div class="spinner-large"></div>
+        <p>Consultando catálogo GraphQL da Shopee Brasil...</p>
+      </div>
+
+      <!-- Grid de Ofertas da Shopee -->
+      <div *ngIf="!shopeeCarregando() && shopeeOfertas().length > 0" class="shopee-grid">
+        <div 
+          *ngFor="let oferta of shopeeOfertas()" 
+          class="shopee-card glass-panel" 
+          [class.selected]="shopeeSelecionados().has(oferta.item_id)"
+        >
+          <div class="shopee-card-thumb">
+            <label class="shopee-checkbox-overlay">
+              <input 
+                type="checkbox" 
+                [checked]="shopeeSelecionados().has(oferta.item_id)" 
+                (change)="toggleSelecionarOferta(oferta.item_id)"
+              >
+            </label>
+            <img [src]="oferta.image_url" [alt]="oferta.product_name" loading="lazy">
+            <span class="badge-comissao">
+              +{{ (oferta.commission_rate * 100).toFixed(0) }}% Comiss. (~R$ {{ oferta.commission }})
+            </span>
+          </div>
+
+          <div class="shopee-card-info">
+            <div class="shopee-tags">
+              <span class="tag-sales" *ngIf="oferta.sales > 0">🔥 {{ oferta.sales }} vendas</span>
+              <span class="tag-rating" *ngIf="oferta.rating_star > 0">⭐ {{ oferta.rating_star }}</span>
+            </div>
+
+            <h4 class="shopee-title" [title]="oferta.product_name">{{ oferta.product_name }}</h4>
+            <p class="shopee-shop text-muted text-xs">Loja: {{ oferta.shop_name || 'Shopee Oficial' }}</p>
+
+            <div class="shopee-bottom">
+              <div class="shopee-price">
+                <span class="price-val">R$ {{ oferta.price }}</span>
+              </div>
+              <div class="shopee-actions">
+                <button 
+                  class="btn btn-sm btn-primary" 
+                  [disabled]="shopeeImportando()" 
+                  (click)="importarOfertaUnica(oferta)" 
+                  title="Importar diretamente para o banco de produtos"
+                >
+                  📥 Importar
+                </button>
+                <a [href]="oferta.offer_link" target="_blank" class="btn btn-sm btn-secondary" title="Abrir link de afiliado na Shopee">
+                  🔗
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Empty State -->
+      <div *ngIf="!shopeeCarregando() && shopeeOfertas().length === 0" class="empty-state glass-panel">
+        <span class="empty-icon">🛍️</span>
+        <h3>Nenhuma oferta encontrada</h3>
+        <p class="text-muted">Utilize o campo de busca acima ou alterne a ordenação para carregar produtos em alta.</p>
+        <button class="btn btn-primary" (click)="onShopeeBuscaSubmit()">Carregar Top Vendas</button>
+      </div>
+
+      <!-- Paginação Shopee -->
+      <div class="pagination-footer glass-panel" *ngIf="!shopeeCarregando() && shopeeOfertas().length > 0">
+        <button 
+          class="btn btn-secondary btn-sm" 
+          [disabled]="shopeePagina() <= 1" 
+          (click)="carregarOfertasShopee(shopeePagina() - 1)"
+        >
+          ⬅️ Página Anterior
+        </button>
+        <span class="page-indicator">Página {{ shopeePagina() }}</span>
+        <button 
+          class="btn btn-secondary btn-sm" 
+          [disabled]="!shopeeHasNext()" 
+          (click)="carregarOfertasShopee(shopeePagina() + 1)"
+        >
+          Próxima Página ➡️
+        </button>
+      </div>
+    </section>
+
+    <!-- ABA: VENDAS & CONVERSÕES (RECONCILIAÇÃO CONTÁBIL) -->
+    <section *ngIf="abaAtiva() === 'conversoes'" class="section-container">
+      <div class="conversoes-header glass-panel">
+        <div>
+          <h2>Relatório de Vendas e Comissões Shopee</h2>
+          <p class="text-muted">Acompanhamento de conversões, receita bruta gerada e reconciliação financeira.</p>
+        </div>
+        <div class="conversoes-header-actions">
+          <button 
+            class="btn btn-secondary" 
+            [disabled]="conversoesCarregando()" 
+            (click)="carregarConversoes()"
+          >
+            🔄 Atualizar Dados
+          </button>
+          <button 
+            class="btn btn-primary" 
+            [disabled]="sincronizandoConversoes()" 
+            (click)="sincronizarConversoes()"
+          >
+            <span *ngIf="sincronizandoConversoes()" class="spinner"></span>
+            <span *ngIf="!sincronizandoConversoes()">⚡</span>
+            {{ sincronizandoConversoes() ? 'Sincronizando com Shopee...' : 'Sincronizar com Shopee' }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Cards de Métricas Financeiras -->
+      <div class="stats-grid" *ngIf="conversoesData()">
+        <div class="stat-card glass-panel border-accent-gold">
+          <div class="stat-icon">💰</div>
+          <div class="stat-details">
+            <span class="stat-value">R$ {{ conversoesData()?.resumo?.total_comissao_reais?.toFixed(2) || '0.00' }}</span>
+            <span class="stat-label">Comissão Total Confirmada</span>
+          </div>
+        </div>
+
+        <div class="stat-card glass-panel border-accent-emerald">
+          <div class="stat-icon">💵</div>
+          <div class="stat-details">
+            <span class="stat-value">R$ {{ conversoesData()?.resumo?.total_vendas_reais?.toFixed(2) || '0.00' }}</span>
+            <span class="stat-label">Volume Total de Vendas</span>
+          </div>
+        </div>
+
+        <div class="stat-card glass-panel">
+          <div class="stat-icon">📦</div>
+          <div class="stat-details">
+            <span class="stat-value">{{ conversoesData()?.resumo?.total_pedidos || 0 }}</span>
+            <span class="stat-label">Pedidos Faturados</span>
+          </div>
+        </div>
+
+        <div class="stat-card glass-panel">
+          <div class="stat-icon">📊</div>
+          <div class="stat-details">
+            <span class="stat-value">{{ conversoesData()?.conversoes?.length || 0 }}</span>
+            <span class="stat-label">Itens Reconciliados</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tabela de Conversões -->
+      <div class="table-container glass-panel">
+        <div class="table-header-title">
+          <h3>Histórico de Pedidos e Itens Vendidos</h3>
+          <span class="badge badge-info">{{ conversoesData()?.conversoes?.length || 0 }} registros</span>
+        </div>
+
+        <div *ngIf="conversoesCarregando()" class="loading-state">
+          <div class="spinner-large"></div>
+          <p>Carregando conversões do banco de dados...</p>
+        </div>
+
+        <table *ngIf="!conversoesCarregando() && conversoesData()?.conversoes?.length" class="data-table">
+          <thead>
+            <tr>
+              <th>ID Pedido</th>
+              <th>Produto</th>
+              <th>Canal</th>
+              <th>Valor Item</th>
+              <th>Comissão</th>
+              <th>Status do Pedido</th>
+              <th>Data Compra</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let conv of conversoesData()?.conversoes">
+              <td class="font-mono text-xs">{{ conv.order_id || conv.conversion_id }}</td>
+              <td>
+                <span class="font-bold text-sm">{{ conv.item_name || 'Item ' + conv.item_id }}</span>
+                <span class="font-mono text-muted text-xs d-block">ID: {{ conv.item_id }}</span>
+              </td>
+              <td>
+                <span class="status-chip">{{ conv.channel_type || 'Geral' }}</span>
+              </td>
+              <td class="font-bold">R$ {{ conv.item_price?.toFixed(2) }}</td>
+              <td class="font-bold text-success">R$ {{ conv.item_commission?.toFixed(2) }}</td>
+              <td>
+                <span class="badge" [class.badge-sucesso]="conv.order_status === 'COMPLETED'" [class.badge-parcial]="conv.order_status === 'PENDING'" [class.badge-falha]="conv.order_status === 'CANCELLED'">
+                  {{ conv.order_status }}
+                </span>
+              </td>
+              <td class="text-xs text-muted">{{ conv.purchase_time }}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div *ngIf="!conversoesCarregando() && !conversoesData()?.conversoes?.length" class="empty-state">
+          <span class="empty-icon">📈</span>
+          <h3>Nenhuma conversão registrada ainda</h3>
+          <p class="text-muted">Clique em "Sincronizar com Shopee" para puxar as conversões geradas pelos links comissionados.</p>
         </div>
       </div>
     </section>
