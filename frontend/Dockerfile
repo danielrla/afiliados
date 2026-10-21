@@ -1,7 +1,7 @@
 FROM node:22-alpine
 
 ENV TZ=America/Cuiaba
-RUN apk add --no-cache tzdata && \
+RUN (apk add --no-cache tzdata || (apk update && apk add --no-cache tzdata)) && \
     cp /usr/share/zoneinfo/$TZ /etc/localtime && \
     echo $TZ > /etc/timezone
 

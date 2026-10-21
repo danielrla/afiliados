@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { AfiliadosService } from './services/afiliados.service';
@@ -67,6 +67,77 @@ export class AppComponent implements OnInit {
   conversoesData = signal<ShopeeConversoesResposta | null>(null);
   conversoesCarregando = signal<boolean>(false);
   sincronizandoConversoes = signal<boolean>(false);
+  conversoesBusca = signal<string>('');
+  conversoesFiltroCanal = signal<string>('TODOS');
+  conversoesFiltroStatus = signal<string>('TODOS');
+  conversoesOrdenacao = signal<'recente' | 'maior_comissao' | 'maior_valor'>('recente');
+
+  // Métricas Computadas e Filtros do Relatório
+  conversoesFiltradas = computed(() => {
+    const raw = this.conversoesData()?.conversoes || [];
+    const busca = this.conversoesBusca().trim().toLowerCase();
+    const canalFiltro = this.conversoesFiltroCanal();
+    const statusFiltro = this.conversoesFiltroStatus();
+    const ordenacao = this.conversoesOrdenacao();
+
+    let filtradas = raw.filter((item) => {
+      if (canalFiltro !== 'TODOS') {
+        const itemCanal = (item.channel_type || '').toLowerCase();
+        if (canalFiltro === 'whatsapp' && !itemCanal.includes('wa') && !itemCanal.includes('zap')) return false;
+        if (canalFiltro === 'facebook' && !itemCanal.includes('fb') && !itemCanal.includes('facebook')) return false;
+        if (canalFiltro === 'stories' && !itemCanal.includes('stories')) return false;
+        if (canalFiltro === 'post' && !itemCanal.includes('post') && !itemCanal.includes('feed')) return false;
+        if (canalFiltro === 'reels' && !itemCanal.includes('reels')) return false;
+        if (canalFiltro === 'outros' && (itemCanal.includes('wa') || itemCanal.includes('fb') || itemCanal.includes('stories') || itemCanal.includes('post') || itemCanal.includes('reels'))) return false;
+      }
+      if (statusFiltro !== 'TODOS' && item.order_status !== statusFiltro) {
+        return false;
+      }
+      if (busca) {
+        const emNome = (item.item_name || '').toLowerCase().includes(busca);
+        const emPedido = (item.order_id || '').toLowerCase().includes(busca);
+        const emItem = String(item.item_id).toLowerCase().includes(busca);
+        if (!emNome && !emPedido && !emItem) return false;
+      }
+      return true;
+    });
+
+    return [...filtradas].sort((a, b) => {
+      if (ordenacao === 'maior_comissao') {
+        return (b.item_commission || 0) - (a.item_commission || 0);
+      }
+      if (ordenacao === 'maior_valor') {
+        return (b.item_price || 0) - (a.item_price || 0);
+      }
+      return (b.purchase_time || '').localeCompare(a.purchase_time || '');
+    });
+  });
+
+  totalComissaoFiltrada = computed(() => {
+    return this.conversoesFiltradas().reduce((acc, it) => acc + (it.item_commission || 0), 0);
+  });
+
+  totalVendasFiltrada = computed(() => {
+    return this.conversoesFiltradas().reduce((acc, it) => acc + (it.item_price || 0), 0);
+  });
+
+  comissaoMediaPorPedido = computed(() => {
+    const total = this.conversoesData()?.resumo?.total_pedidos || 0;
+    const comissao = this.conversoesData()?.resumo?.total_comissao_reais || 0;
+    return total > 0 ? comissao / total : 0;
+  });
+
+  ticketMedioVendas = computed(() => {
+    const total = this.conversoesData()?.resumo?.total_pedidos || 0;
+    const vendas = this.conversoesData()?.resumo?.total_vendas_reais || 0;
+    return total > 0 ? vendas / total : 0;
+  });
+
+  taxaSucessoPedidos = computed(() => {
+    const total = this.conversoesData()?.resumo?.total_pedidos || 0;
+    const concluidos = this.conversoesData()?.resumo?.pedidos_por_status?.['COMPLETED'] || 0;
+    return total > 0 ? Math.round((concluidos / total) * 100) : 0;
+  });
 
   readonly canais = [
     { id: 'whatsapp', nome: 'WhatsApp', icone: '💬' },
@@ -519,5 +590,69 @@ export class AppComponent implements OnInit {
       default:
         return 'badge-pendente';
     }
+  }
+
+  formatarTaxaComissao(taxa: string | number | undefined): string {
+    if (!taxa) return '0';
+    const num = typeof taxa === 'number' ? taxa : parseFloat(taxa) || 0;
+    return (num * 100).toFixed(0);
+  }
+
+  limparFiltrosConversoes(): void {
+    this.conversoesBusca.set('');
+    this.conversoesFiltroCanal.set('TODOS');
+    this.conversoesFiltroStatus.set('TODOS');
+    this.conversoesOrdenacao.set('recente');
+  }
+
+  obterInfoCanal(channelType?: string): { nome: string; icone: string; cor: string; bg: string } {
+    const tipo = (channelType || '').toLowerCase();
+    if (tipo.includes('wa') || tipo.includes('zap') || tipo.includes('wagrupo')) {
+      return { nome: 'WhatsApp', icone: '💬', cor: '#16a34a', bg: '#dcfce7' };
+    }
+    if (tipo.includes('fb') || tipo.includes('facebook') || tipo.includes('fbfeed')) {
+      return { nome: 'Facebook', icone: '📘', cor: '#2563eb', bg: '#dbeafe' };
+    }
+    if (tipo.includes('stories') || tipo.includes('igstories')) {
+      return { nome: 'IG Stories', icone: '📱', cor: '#e11d48', bg: '#ffe4e6' };
+    }
+    if (tipo.includes('post') || tipo.includes('feed') || tipo.includes('igpost')) {
+      return { nome: 'IG Post', icone: '📸', cor: '#9333ea', bg: '#f3e8ff' };
+    }
+    if (tipo.includes('reels') || tipo.includes('igreels')) {
+      return { nome: 'IG Reels', icone: '🎬', cor: '#7c3aed', bg: '#ede9fe' };
+    }
+    return { nome: channelType ? channelType.toUpperCase() : 'Geral', icone: '🔗', cor: '#475569', bg: '#f1f5f9' };
+  }
+
+  exportarConversoesCSV(): void {
+    const itens = this.conversoesFiltradas();
+    if (!itens || itens.length === 0) {
+      this.mostrarAlerta('info', 'Não há registros para exportar com os filtros atuais.');
+      return;
+    }
+    const cabecalho = ['ID Pedido', 'ID Item', 'Produto', 'Canal', 'Valor Item (R$)', 'Comissão (R$)', 'Status', 'Data Compra'];
+    const linhas = itens.map((c) => [
+      `"${c.order_id || c.conversion_id}"`,
+      `"${c.item_id}"`,
+      `"${(c.item_name || '').replace(/"/g, '""')}"`,
+      `"${c.channel_type || 'Geral'}"`,
+      (c.item_price || 0).toFixed(2),
+      (c.item_commission || 0).toFixed(2),
+      `"${c.order_status}"`,
+      `"${c.purchase_time}"`
+    ]);
+    const csvContent = '\uFEFF' + [cabecalho.join(';'), ...linhas.map((l) => l.join(';'))].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    const dataStr = new Date().toISOString().split('T')[0];
+    link.setAttribute('download', `shopee_conversoes_${dataStr}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    this.mostrarAlerta('sucesso', `${itens.length} conversão(ões) exportada(s) com sucesso para CSV.`);
   }
 }

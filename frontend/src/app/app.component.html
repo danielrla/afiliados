@@ -533,6 +533,9 @@
           </div>
           <p class="integration-detail">{{ integracoes()?.shopee?.mensagem }}</p>
         </div>
+      </div>
+    </section>
+
     <!-- ABA: DESCOBERTA SHOPEE (API GRAPHQL EM TEMPO REAL) -->
     <section *ngIf="abaAtiva() === 'shopee'" class="section-container">
       <div class="table-toolbar glass-panel">
@@ -611,7 +614,7 @@
             </label>
             <img [src]="oferta.image_url" [alt]="oferta.product_name" loading="lazy">
             <span class="badge-comissao">
-              +{{ (oferta.commission_rate * 100).toFixed(0) }}% Comiss. (~R$ {{ oferta.commission }})
+              +{{ formatarTaxaComissao(oferta.commission_rate) }}% Comiss. (~R$ {{ oferta.commission }})
             </span>
           </div>
 
@@ -701,8 +704,8 @@
         </div>
       </div>
 
-      <!-- Cards de Métricas Financeiras -->
-      <div class="stats-grid" *ngIf="conversoesData()">
+      <!-- Cards de Métricas Analíticas Expandidas -->
+      <div class="stats-grid stats-grid-6" *ngIf="conversoesData()">
         <div class="stat-card glass-panel border-accent-gold">
           <div class="stat-icon">💰</div>
           <div class="stat-details">
@@ -728,19 +731,188 @@
         </div>
 
         <div class="stat-card glass-panel">
-          <div class="stat-icon">📊</div>
+          <div class="stat-icon">🏷️</div>
           <div class="stat-details">
-            <span class="stat-value">{{ conversoesData()?.conversoes?.length || 0 }}</span>
-            <span class="stat-label">Itens Reconciliados</span>
+            <span class="stat-value">R$ {{ ticketMedioVendas().toFixed(2) }}</span>
+            <span class="stat-label">Ticket Médio de Venda</span>
+          </div>
+        </div>
+
+        <div class="stat-card glass-panel">
+          <div class="stat-icon">💎</div>
+          <div class="stat-details">
+            <span class="stat-value">R$ {{ comissaoMediaPorPedido().toFixed(2) }}</span>
+            <span class="stat-label">Comissão Média / Pedido</span>
+          </div>
+        </div>
+
+        <div class="stat-card glass-panel">
+          <div class="stat-icon">🎯</div>
+          <div class="stat-details">
+            <span class="stat-value">{{ taxaSucessoPedidos() }}%</span>
+            <span class="stat-label">Taxa de Conclusão</span>
           </div>
         </div>
       </div>
 
-      <!-- Tabela de Conversões -->
+      <!-- Breakdown por Canais e Distribuição de Status -->
+      <div class="analytics-breakdown-grid" *ngIf="conversoesData()">
+        <!-- Card 1: Comissões por Canal de Divulgação -->
+        <div class="breakdown-card glass-panel">
+          <div class="breakdown-header">
+            <h3>Distribuição de Comissões por Canal</h3>
+            <span class="text-muted text-xs">Rastreamento via subIds</span>
+          </div>
+
+          <div class="channel-bars-list" *ngIf="conversoesData()?.resumo?.comissao_por_canal?.length; else semDadosCanais">
+            <div *ngFor="let canalItem of conversoesData()?.resumo?.comissao_por_canal" class="channel-bar-item">
+              <div class="channel-bar-info">
+                <span class="channel-bar-name">
+                  <span class="channel-icon">{{ obterInfoCanal(canalItem.channel_type).icone }}</span>
+                  {{ obterInfoCanal(canalItem.channel_type).nome }}
+                </span>
+                <span class="channel-bar-values">
+                  <strong>R$ {{ canalItem.comissao.toFixed(2) }}</strong>
+                  <span class="text-muted text-xs">({{ canalItem.qtd }} {{ canalItem.qtd === 1 ? 'item' : 'itens' }})</span>
+                </span>
+              </div>
+              <div class="channel-progress-track">
+                <div 
+                  class="channel-progress-fill" 
+                  [style.background-color]="obterInfoCanal(canalItem.channel_type).cor"
+                  [style.width.%]="(conversoesData()?.resumo?.total_comissao_reais || 0) > 0 ? (canalItem.comissao / (conversoesData()?.resumo?.total_comissao_reais || 1)) * 100 : 0"
+                ></div>
+              </div>
+            </div>
+          </div>
+          <ng-template #semDadosCanais>
+            <p class="text-muted text-sm" style="padding: 16px 0;">Nenhum pedido com subId específico registrado ainda.</p>
+          </ng-template>
+        </div>
+
+        <!-- Card 2: Status dos Pedidos (Funil) -->
+        <div class="breakdown-card glass-panel">
+          <div class="breakdown-header">
+            <h3>Status dos Pedidos</h3>
+            <span class="text-muted text-xs">Auditoria de liquidação Shopee</span>
+          </div>
+
+          <div class="status-summary-list">
+            <div class="status-summary-item border-left-sucesso">
+              <div class="status-summary-left">
+                <span class="status-circle bg-sucesso"></span>
+                <div>
+                  <strong>Concluídos (COMPLETED)</strong>
+                  <p class="text-muted text-xs">Comissão liberada para saque</p>
+                </div>
+              </div>
+              <span class="status-summary-count">{{ conversoesData()?.resumo?.pedidos_por_status?.['COMPLETED'] || 0 }}</span>
+            </div>
+
+            <div class="status-summary-item border-left-pendente">
+              <div class="status-summary-left">
+                <span class="status-circle bg-pendente"></span>
+                <div>
+                  <strong>Em Processamento (PENDING)</strong>
+                  <p class="text-muted text-xs">Aguardando entrega ou confirmação</p>
+                </div>
+              </div>
+              <span class="status-summary-count">{{ conversoesData()?.resumo?.pedidos_por_status?.['PENDING'] || 0 }}</span>
+            </div>
+
+            <div class="status-summary-item border-left-falha">
+              <div class="status-summary-left">
+                <span class="status-circle bg-falha"></span>
+                <div>
+                  <strong>Cancelados ou Devolvidos (CANCELLED)</strong>
+                  <p class="text-muted text-xs">Venda cancelada pelo comprador</p>
+                </div>
+              </div>
+              <span class="status-summary-count">{{ conversoesData()?.resumo?.pedidos_por_status?.['CANCELLED'] || 0 }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Barra de Filtros e Ações da Tabela de Conversões -->
+      <div class="conversoes-toolbar glass-panel" *ngIf="conversoesData()">
+        <div class="toolbar-search">
+          <span class="search-icon">🔍</span>
+          <input 
+            type="text" 
+            class="input-control" 
+            placeholder="Buscar por nome do produto, ID do item ou pedido..." 
+            [ngModel]="conversoesBusca()" 
+            (ngModelChange)="conversoesBusca.set($event)"
+          >
+          <button *ngIf="conversoesBusca()" class="btn-clear-search" (click)="conversoesBusca.set('')">✕</button>
+        </div>
+
+        <div class="toolbar-selects">
+          <div class="select-wrapper">
+            <label>Canal:</label>
+            <select class="input-control select-control" [ngModel]="conversoesFiltroCanal()" (ngModelChange)="conversoesFiltroCanal.set($event)">
+              <option value="TODOS">🌐 Todos os Canais</option>
+              <option value="whatsapp">💬 WhatsApp</option>
+              <option value="facebook">📘 Facebook</option>
+              <option value="stories">📱 IG Stories</option>
+              <option value="post">📸 IG Post</option>
+              <option value="reels">🎬 IG Reels</option>
+              <option value="outros">🔗 Geral / Outros</option>
+            </select>
+          </div>
+
+          <div class="select-wrapper">
+            <label>Status:</label>
+            <select class="input-control select-control" [ngModel]="conversoesFiltroStatus()" (ngModelChange)="conversoesFiltroStatus.set($event)">
+              <option value="TODOS">Todos os Status</option>
+              <option value="COMPLETED">✅ Concluídos (COMPLETED)</option>
+              <option value="PENDING">⏳ Pendentes (PENDING)</option>
+              <option value="CANCELLED">❌ Cancelados (CANCELLED)</option>
+            </select>
+          </div>
+
+          <div class="select-wrapper">
+            <label>Ordenar:</label>
+            <select class="input-control select-control" [ngModel]="conversoesOrdenacao()" (ngModelChange)="conversoesOrdenacao.set($event)">
+              <option value="recente">🕒 Mais Recentes</option>
+              <option value="maior_comissao">💰 Maior Comissão</option>
+              <option value="maior_valor">💵 Maior Valor de Venda</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="toolbar-export-action">
+          <button 
+            class="btn btn-secondary" 
+            [disabled]="conversoesFiltradas().length === 0" 
+            (click)="exportarConversoesCSV()"
+            title="Exportar lista filtrada para arquivo CSV"
+          >
+            📥 Exportar CSV
+          </button>
+          <button 
+            *ngIf="conversoesBusca() || conversoesFiltroCanal() !== 'TODOS' || conversoesFiltroStatus() !== 'TODOS'" 
+            class="btn btn-sm btn-outline" 
+            (click)="limparFiltrosConversoes()"
+            title="Redefinir filtros"
+          >
+            Limpar Filtros
+          </button>
+        </div>
+      </div>
+
+      <!-- Tabela de Conversões Enriquecida -->
       <div class="table-container glass-panel">
         <div class="table-header-title">
-          <h3>Histórico de Pedidos e Itens Vendidos</h3>
-          <span class="badge badge-info">{{ conversoesData()?.conversoes?.length || 0 }} registros</span>
+          <div class="table-title-group">
+            <h3>Histórico de Pedidos e Itens Vendidos</h3>
+            <span class="text-muted text-xs" *ngIf="conversoesFiltradas().length > 0">
+              Mostrando {{ conversoesFiltradas().length }} de {{ conversoesData()?.conversoes?.length || 0 }} registros
+              • Subtotal de comissão: <strong class="text-success">R$ {{ totalComissaoFiltrada().toFixed(2) }}</strong>
+            </span>
+          </div>
+          <span class="badge badge-info">{{ conversoesFiltradas().length }} exibidos</span>
         </div>
 
         <div *ngIf="conversoesCarregando()" class="loading-state">
@@ -748,12 +920,12 @@
           <p>Carregando conversões do banco de dados...</p>
         </div>
 
-        <table *ngIf="!conversoesCarregando() && conversoesData()?.conversoes?.length" class="data-table">
+        <table *ngIf="!conversoesCarregando() && conversoesFiltradas().length" class="data-table">
           <thead>
             <tr>
               <th>ID Pedido</th>
               <th>Produto</th>
-              <th>Canal</th>
+              <th>Canal de Venda</th>
               <th>Valor Item</th>
               <th>Comissão</th>
               <th>Status do Pedido</th>
@@ -761,20 +933,38 @@
             </tr>
           </thead>
           <tbody>
-            <tr *ngFor="let conv of conversoesData()?.conversoes">
-              <td class="font-mono text-xs">{{ conv.order_id || conv.conversion_id }}</td>
-              <td>
-                <span class="font-bold text-sm">{{ conv.item_name || 'Item ' + conv.item_id }}</span>
-                <span class="font-mono text-muted text-xs d-block">ID: {{ conv.item_id }}</span>
+            <tr *ngFor="let conv of conversoesFiltradas()">
+              <td class="font-mono text-xs">
+                <span class="order-id-badge">{{ conv.order_id || conv.conversion_id }}</span>
               </td>
               <td>
-                <span class="status-chip">{{ conv.channel_type || 'Geral' }}</span>
+                <div class="table-prod-info">
+                  <span class="font-bold text-sm">{{ conv.item_name || 'Item ' + conv.item_id }}</span>
+                  <span class="font-mono text-muted text-xs d-block">ID: {{ conv.item_id }}</span>
+                </div>
               </td>
-              <td class="font-bold">R$ {{ conv.item_price?.toFixed(2) }}</td>
-              <td class="font-bold text-success">R$ {{ conv.item_commission?.toFixed(2) }}</td>
               <td>
-                <span class="badge" [class.badge-sucesso]="conv.order_status === 'COMPLETED'" [class.badge-parcial]="conv.order_status === 'PENDING'" [class.badge-falha]="conv.order_status === 'CANCELLED'">
-                  {{ conv.order_status }}
+                <span 
+                  class="channel-pill" 
+                  [style.background-color]="obterInfoCanal(conv.channel_type).bg"
+                  [style.color]="obterInfoCanal(conv.channel_type).cor"
+                >
+                  <span class="channel-pill-icon">{{ obterInfoCanal(conv.channel_type).icone }}</span>
+                  {{ obterInfoCanal(conv.channel_type).nome }}
+                </span>
+              </td>
+              <td class="font-bold">R$ {{ conv.item_price.toFixed(2) }}</td>
+              <td class="font-bold text-success">
+                R$ {{ conv.item_commission.toFixed(2) }}
+              </td>
+              <td>
+                <span 
+                  class="badge" 
+                  [class.badge-sucesso]="conv.order_status === 'COMPLETED'" 
+                  [class.badge-parcial]="conv.order_status === 'PENDING'" 
+                  [class.badge-falha]="conv.order_status === 'CANCELLED'"
+                >
+                  {{ conv.order_status === 'COMPLETED' ? 'CONCLUÍDO' : (conv.order_status === 'PENDING' ? 'PENDENTE' : conv.order_status) }}
                 </span>
               </td>
               <td class="text-xs text-muted">{{ conv.purchase_time }}</td>
@@ -782,10 +972,19 @@
           </tbody>
         </table>
 
-        <div *ngIf="!conversoesCarregando() && !conversoesData()?.conversoes?.length" class="empty-state">
+        <!-- Empty State com e sem Filtros -->
+        <div *ngIf="!conversoesCarregando() && conversoesFiltradas().length === 0" class="empty-state">
           <span class="empty-icon">📈</span>
-          <h3>Nenhuma conversão registrada ainda</h3>
-          <p class="text-muted">Clique em "Sincronizar com Shopee" para puxar as conversões geradas pelos links comissionados.</p>
+          <div *ngIf="conversoesData()?.conversoes?.length; else semNenhumRegistro">
+            <h3>Nenhum resultado para os filtros atuais</h3>
+            <p class="text-muted">Ajuste os filtros de canal, status ou busca textual para encontrar as conversões.</p>
+            <button class="btn btn-secondary btn-sm" (click)="limparFiltrosConversoes()">Limpar Filtros</button>
+          </div>
+          <ng-template #semNenhumRegistro>
+            <h3>Nenhuma conversão registrada ainda</h3>
+            <p class="text-muted">Clique em "Sincronizar com Shopee" no topo para consultar pedidos comissionados via API GraphQL.</p>
+            <button class="btn btn-primary" (click)="sincronizarConversoes()">⚡ Sincronizar com Shopee</button>
+          </ng-template>
         </div>
       </div>
     </section>
