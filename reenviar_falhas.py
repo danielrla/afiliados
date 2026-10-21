@@ -119,8 +119,6 @@ def reenviar_produto_pendente(
     print(f"🔄 Reenviando pendências: {item_name} (ID: {item_id})")
     print(f"📋 Canais a processar ({len(pendentes)}): {', '.join(pendentes)}")
 
-    # 1. Localização ou busca das imagens
-    artes = localizar_artes_produto(item_id, pasta_artes)
     primary_image = produto.get("image_url")
     if not primary_image and product_link:
         images = fetch_product_images(product_link, max_images=2, item_id=item_id)
@@ -131,34 +129,6 @@ def reenviar_produto_pendente(
                 atualizar_imagem_produto(item_id, primary_image)
             except Exception:
                 pass
-
-    # Verifica se as artes existentes possuem a foto original em cache
-    pasta_existente = artes.get("pasta")
-    tem_foto_original = pasta_existente and (pasta_existente / "original.jpg").exists()
-
-    # Se faltar canal do Instagram e as artes não existirem ou estiverem sem a foto original
-    precisa_instagram = any(c in pendentes for c in ["instagram_stories", "instagram_post", "instagram_reels"])
-    artes_incompletas = not artes.get("stories") or not artes.get("post") or not artes.get("reeals") or (not tem_foto_original and primary_image)
-
-    if precisa_instagram and artes_incompletas:
-        if primary_image:
-            print("🎨 Gerando novas artes para Instagram com template e foto oficial do produto...")
-            try:
-                clean_price = price.replace("R$", "").strip() if price else "OFERTA"
-                artes = gerar_todas_imagens({
-                    "item_id": item_id,
-                    "title": item_name,
-                    "image_url": primary_image,
-                    "price": clean_price,
-                    "url": offer_link,
-                })
-                atualizar_codigo_artes(item_id, artes.get("codigo"), pasta_artes=str(artes.get("pasta")))
-                print(f"   ✅ Novas artes geradas em: {artes.get('pasta')}")
-            except Exception as e:
-                print(f"   ⚠️ Não foi possível gerar as artes: {e}")
-        else:
-            print("   ⚠️ Sem imagem base para gerar artes do Instagram.")
-
 
     # Geração de links rastreados por canal via Shopee Affiliate API
     shopee_client = None
@@ -189,16 +159,10 @@ def reenviar_produto_pendente(
             print(f"   🔍 [DRY-RUN] Seria reenviado: {canal}")
         return resultado
 
-    story_png = artes.get("stories")
-    post_png = artes.get("post")
-    reels_png = artes.get("reeals") or artes.get("reels")
-    pasta_existente = artes.get("pasta")
-    original_img_path = (pasta_existente / "original.jpg") if (pasta_existente and (pasta_existente / "original.jpg").exists()) else None
-
-    # 1. WhatsApp
+    # 1. WhatsApp - Envia exclusivamente a imagem original do produto
     if "whatsapp" in pendentes and wa_client:
-        print("💬 [1/5] Tentando reenviar WhatsApp...")
-        caminho_wa = str(post_png) if (post_png and post_png.exists()) else (str(original_img_path) if original_img_path else (primary_image if primary_image else None))
+        print("💬 [1/5] Tentando reenviar WhatsApp com foto original...")
+        caminho_wa = primary_image if primary_image else None
         try:
             res_wa = wa_client.send_to_group(caption_wa, image_url=caminho_wa)
             msg_id = res_wa.get("messageId") or res_wa.get("zaapId")
@@ -212,13 +176,13 @@ def reenviar_produto_pendente(
     elif "whatsapp" not in pendentes:
         print("💬 [1/5] WhatsApp: Já concluído. Pulando.")
 
-    # 2. Facebook
+    # 2. Facebook - Envia exclusivamente a imagem original do produto
     if "facebook" in pendentes and fb_client:
-        print("📘 [2/5] Tentando reenviar Facebook...")
+        print("📘 [2/5] Tentando reenviar Facebook com foto original...")
         caminho_fb = primary_image if primary_image else None
         try:
-            if primary_image:
-                res_fb = fb_client.publish_photo(primary_image, caption_fb)
+            if caminho_fb:
+                res_fb = fb_client.publish_photo(caminho_fb, caption_fb)
             else:
                 res_fb = fb_client.publish_post(caption_fb, link=link_fb)
             post_id = res_fb.get("post_id") or res_fb.get("id")
@@ -231,6 +195,34 @@ def reenviar_produto_pendente(
             print(f"   ❌ Facebook: Falha ({e})")
     elif "facebook" not in pendentes:
         print("📘 [2/5] Facebook: Já concluído. Pulando.")
+
+    # 3. Instagram - Processamento exclusivo de templates apenas se houver canal de Instagram pendente
+    precisa_instagram = any(c in pendentes for c in ["instagram_stories", "instagram_post", "instagram_reels"])
+    artes = {}
+    if precisa_instagram:
+        print("📸 [3/5] Processando artes exclusivas para Instagram...")
+        artes = localizar_artes_produto(item_id, pasta_artes)
+        pasta_existente = artes.get("pasta")
+        tem_foto_original = pasta_existente and (pasta_existente / "original.jpg").exists()
+        artes_incompletas = not artes.get("stories") or not artes.get("post") or not artes.get("reeals") or (not tem_foto_original and primary_image)
+        if artes_incompletas:
+            if primary_image:
+                print("🎨 Gerando novas artes para Instagram com template e foto oficial do produto...")
+                try:
+                    clean_price = price.replace("R$", "").strip() if price else "OFERTA"
+                    artes = gerar_todas_imagens({
+                        "item_id": item_id,
+                        "title": item_name,
+                        "image_url": primary_image,
+                        "price": clean_price,
+                        "url": offer_link,
+                    })
+                    atualizar_codigo_artes(item_id, artes.get("codigo"), pasta_artes=str(artes.get("pasta")))
+                    print(f"   ✅ Novas artes geradas em: {artes.get('pasta')}")
+                except Exception as e:
+                    print(f"   ⚠️ Não foi possível gerar as artes: {e}")
+            else:
+                print("   ⚠️ Sem imagem base para gerar artes do Instagram.")
 
     story_png = artes.get("stories")
     post_png = artes.get("post")

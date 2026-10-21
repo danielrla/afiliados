@@ -177,46 +177,14 @@ def publicar_produto(
         "instagram_reels": None,
     }
 
-    # 1. Localização ou geração das artes oficiais do Instagram em db/img
-    artes = localizar_artes_produto(item_id, produto.get("pasta_artes"))
-    precisa_instagram = any(status_canais.get(c) != "SUCESSO" for c in ["instagram_stories", "instagram_post", "instagram_reels"])
-    if precisa_instagram and (not artes.get("stories") or not artes.get("post") or not artes.get("reels")):
-        print("🎨 Gerando artes oficiais para Instagram (Stories, Post e Reels) com template...")
-        try:
-            clean_price = price.replace("R$", "").strip() if price else "OFERTA"
-            artes = gerar_todas_imagens({
-                "item_id": item_id,
-                "title": item_name,
-                "image_url": primary_image,
-                "price": clean_price,
-                "url": offer_link,
-            })
-            pasta_artes_str = str(artes.get("pasta")) if artes.get("pasta") else None
-            atualizar_codigo_artes(item_id, artes.get("codigo"), pasta_artes=pasta_artes_str)
-            print(f"   ✅ Identificador: {artes.get('codigo')}")
-            print(f"   📁 Salvo em db/img: {artes.get('pasta')}")
-            print(f"   📸 Stories:      {artes.get('stories').name}")
-            print(f"   🖼️  Post:         {artes.get('post').name}")
-            reels_nome = artes.get('reels', artes.get('reeals')).name if artes.get('reels') or artes.get('reeals') else 'reels'
-            print(f"   🎬 Reels:        {reels_nome}")
-        except Exception as e:
-            print(f"   ⚠️ Falha na geração das imagens pelo template: {e}")
-
-    if dry_run:
-        print("[DRY-RUN] Simulação ativa. Nenhuma publicação externa enviada.")
-        if artes:
-            print(f"   🖼️  [DRY-RUN] Artes salvas em: {artes.get('pasta')}")
-        return resultado
-
-    # 1 - Publicar no grupo do whatsapp:
-    # 1.1 - Publicar o link no grupo.
+    # 1 - Publicar no grupo do whatsapp com a imagem original do produto
     caminho_wa = primary_image if primary_image else None
     if status_canais.get("whatsapp") == "SUCESSO":
         print("💬 [1/3] WhatsApp: Já publicado anteriormente com sucesso. Pulando.")
     else:
-        print("💬 [1/3] Publicando no WhatsApp...")
+        print("💬 [1/3] Publicando no WhatsApp com foto original do produto...")
         try:
-            res_wa = wa_client.send_to_group(caption_wa, image_url=primary_image)
+            res_wa = wa_client.send_to_group(caption_wa, image_url=caminho_wa)
             msg_id = res_wa.get("messageId") or res_wa.get("zaapId")
             resultado["whatsapp"] = msg_id
             registrar_resultado_canal(item_id, "whatsapp", "SUCESSO", id_externo=msg_id, caminho_imagem=caminho_wa, link_rastreado=link_wa)
@@ -225,16 +193,15 @@ def publicar_produto(
             registrar_resultado_canal(item_id, "whatsapp", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_wa, link_rastreado=link_wa)
             print(f"   ❌ WhatsApp: Falha ({e})")
 
-    # 2 - Publicar no facebook:
-    # 2.2 - Postar com a Descricao do produto, imagens e link do produto.
+    # 2 - Publicar no facebook com a imagem original do produto
     caminho_fb = primary_image if primary_image else None
     if status_canais.get("facebook") == "SUCESSO":
         print("📘 [2/3] Facebook: Já publicado anteriormente com sucesso. Pulando.")
     else:
-        print("📘 [2/3] Publicando no Facebook...")
+        print("📘 [2/3] Publicando no Facebook com foto original do produto...")
         try:
-            if primary_image:
-                res_fb = fb_client.publish_photo(primary_image, caption_fb)
+            if caminho_fb:
+                res_fb = fb_client.publish_photo(caminho_fb, caption_fb)
             else:
                 res_fb = fb_client.publish_post(caption_fb, link=link_fb)
             post_id = res_fb.get("post_id") or res_fb.get("id")
@@ -245,8 +212,36 @@ def publicar_produto(
             registrar_resultado_canal(item_id, "facebook", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_fb, link_rastreado=link_fb)
             print(f"   ❌ Facebook: Falha ({e})")
 
-    # 3 - Publicar no Instagram:
-    print("📸 [3/3] Publicando no Instagram...")
+    # 3 - Publicar no Instagram (exclusivo com processamento de artes para Stories, Post e Reels)
+    precisa_instagram = any(status_canais.get(c) != "SUCESSO" for c in ["instagram_stories", "instagram_post", "instagram_reels"])
+    artes = {}
+    if precisa_instagram:
+        print("📸 [3/3] Processando artes exclusivas para publicação no Instagram...")
+        artes = localizar_artes_produto(item_id, produto.get("pasta_artes"))
+        if not artes.get("stories") or not artes.get("post") or not artes.get("reels"):
+            print("🎨 Gerando artes oficiais para Instagram (Stories, Post e Reels) com template...")
+            try:
+                clean_price = price.replace("R$", "").strip() if price else "OFERTA"
+                artes = gerar_todas_imagens({
+                    "item_id": item_id,
+                    "title": item_name,
+                    "image_url": primary_image,
+                    "price": clean_price,
+                    "url": offer_link,
+                })
+                pasta_artes_str = str(artes.get("pasta")) if artes.get("pasta") else None
+                atualizar_codigo_artes(item_id, artes.get("codigo"), pasta_artes=pasta_artes_str)
+                print(f"   ✅ Identificador: {artes.get('codigo')}")
+                print(f"   📁 Salvo em db/img: {artes.get('pasta')}")
+                print(f"   📸 Stories:      {artes.get('stories').name}")
+                print(f"   🖼️  Post:         {artes.get('post').name}")
+                reels_nome = artes.get('reels', artes.get('reeals')).name if artes.get('reels') or artes.get('reeals') else 'reels'
+                print(f"   🎬 Reels:        {reels_nome}")
+            except Exception as e:
+                print(f"   ⚠️ Falha na geração das imagens pelo template: {e}")
+    else:
+        print("📸 [3/3] Instagram: Todos os canais já concluídos. Pulando geração de artes.")
+
     story_png = artes.get("stories")
     post_png = artes.get("post")
     reels_png = artes.get("reeals") or artes.get("reels")
