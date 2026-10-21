@@ -160,7 +160,27 @@ def reenviar_produto_pendente(
             print("   ⚠️ Sem imagem base para gerar artes do Instagram.")
 
 
-    caption = format_caption(item_name, offer_link, price)
+    # Geração de links rastreados por canal via Shopee Affiliate API
+    shopee_client = None
+    try:
+        from shopee.client import ShopeeAffiliateClient
+        shopee_client = ShopeeAffiliateClient()
+    except Exception:
+        pass
+
+    origin_link = product_link or offer_link
+    link_wa = (shopee_client.gerar_link_canal(origin_link, "whatsapp") if shopee_client else None) or offer_link
+    link_fb = (shopee_client.gerar_link_canal(origin_link, "facebook") if shopee_client else None) or offer_link
+    link_stories = (shopee_client.gerar_link_canal(origin_link, "instagram_stories") if shopee_client else None) or offer_link
+    link_post = (shopee_client.gerar_link_canal(origin_link, "instagram_post") if shopee_client else None) or offer_link
+    link_reels = (shopee_client.gerar_link_canal(origin_link, "instagram_reels") if shopee_client else None) or offer_link
+
+    caption_wa = format_caption(item_name, link_wa, price)
+    caption_fb = format_caption(item_name, link_fb, price)
+    caption_post = format_caption(item_name, link_post, price)
+    caption_reels = format_caption(item_name, link_reels, price)
+    caption = caption_wa
+
     resultado = {"item_id": item_id, "canais": {}}
 
     if dry_run:
@@ -180,14 +200,14 @@ def reenviar_produto_pendente(
         print("💬 [1/5] Tentando reenviar WhatsApp...")
         caminho_wa = str(post_png) if (post_png and post_png.exists()) else (str(original_img_path) if original_img_path else (primary_image if primary_image else None))
         try:
-            res_wa = wa_client.send_to_group(caption, image_url=caminho_wa)
+            res_wa = wa_client.send_to_group(caption_wa, image_url=caminho_wa)
             msg_id = res_wa.get("messageId") or res_wa.get("zaapId")
             resultado["canais"]["whatsapp"] = "SUCESSO"
-            registrar_resultado_canal(item_id, "whatsapp", "SUCESSO", id_externo=msg_id, caminho_imagem=caminho_wa)
+            registrar_resultado_canal(item_id, "whatsapp", "SUCESSO", id_externo=msg_id, caminho_imagem=caminho_wa, link_rastreado=link_wa)
             print(f"   ✅ WhatsApp: Sucesso (ID: {msg_id})")
         except Exception as e:
             resultado["canais"]["whatsapp"] = "FALHA"
-            registrar_resultado_canal(item_id, "whatsapp", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_wa)
+            registrar_resultado_canal(item_id, "whatsapp", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_wa, link_rastreado=link_wa)
             print(f"   ❌ WhatsApp: Falha ({e})")
     elif "whatsapp" not in pendentes:
         print("💬 [1/5] WhatsApp: Já concluído. Pulando.")
@@ -198,16 +218,16 @@ def reenviar_produto_pendente(
         caminho_fb = primary_image if primary_image else None
         try:
             if primary_image:
-                res_fb = fb_client.publish_photo(primary_image, caption)
+                res_fb = fb_client.publish_photo(primary_image, caption_fb)
             else:
-                res_fb = fb_client.publish_post(caption, link=offer_link)
+                res_fb = fb_client.publish_post(caption_fb, link=link_fb)
             post_id = res_fb.get("post_id") or res_fb.get("id")
             resultado["canais"]["facebook"] = "SUCESSO"
-            registrar_resultado_canal(item_id, "facebook", "SUCESSO", id_externo=post_id, caminho_imagem=caminho_fb)
+            registrar_resultado_canal(item_id, "facebook", "SUCESSO", id_externo=post_id, caminho_imagem=caminho_fb, link_rastreado=link_fb)
             print(f"   ✅ Facebook: Sucesso (ID: {post_id})")
         except Exception as e:
             resultado["canais"]["facebook"] = "FALHA"
-            registrar_resultado_canal(item_id, "facebook", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_fb)
+            registrar_resultado_canal(item_id, "facebook", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_fb, link_rastreado=link_fb)
             print(f"   ❌ Facebook: Falha ({e})")
     elif "facebook" not in pendentes:
         print("📘 [2/5] Facebook: Já concluído. Pulando.")
@@ -226,21 +246,21 @@ def reenviar_produto_pendente(
                 res_story = ig_client.publish_story(story_cdn_url)
                 story_id = res_story.get("id")
                 resultado["canais"]["instagram_stories"] = "SUCESSO"
-                registrar_resultado_canal(item_id, "instagram_stories", "SUCESSO", id_externo=story_id, caminho_imagem=caminho_story)
+                registrar_resultado_canal(item_id, "instagram_stories", "SUCESSO", id_externo=story_id, caminho_imagem=caminho_story, link_rastreado=link_stories)
                 print(f"   ✅ Stories: Sucesso (ID: {story_id})")
             elif primary_image:
                 res_story = ig_client.publish_story(primary_image)
                 story_id = res_story.get("id")
                 resultado["canais"]["instagram_stories"] = "SUCESSO"
-                registrar_resultado_canal(item_id, "instagram_stories", "SUCESSO", id_externo=story_id, caminho_imagem=caminho_story)
+                registrar_resultado_canal(item_id, "instagram_stories", "SUCESSO", id_externo=story_id, caminho_imagem=caminho_story, link_rastreado=link_stories)
                 print(f"   ✅ Stories: Sucesso com imagem original (ID: {story_id})")
             else:
                 resultado["canais"]["instagram_stories"] = "FALHA"
-                registrar_resultado_canal(item_id, "instagram_stories", "FALHA", mensagem_erro="Imagem ausente para renderizar template de Stories", caminho_imagem=caminho_story)
+                registrar_resultado_canal(item_id, "instagram_stories", "FALHA", mensagem_erro="Imagem ausente para renderizar template de Stories", caminho_imagem=caminho_story, link_rastreado=link_stories)
                 print("   ⚠️ Stories: Não foi possível enviar (sem imagem).")
         except Exception as e:
             resultado["canais"]["instagram_stories"] = "FALHA"
-            registrar_resultado_canal(item_id, "instagram_stories", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_story)
+            registrar_resultado_canal(item_id, "instagram_stories", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_story, link_rastreado=link_stories)
             print(f"   ❌ Stories: Falha ({e})")
     elif "instagram_stories" not in pendentes:
         print("📲 [3/5] Stories: Já concluído. Pulando.")
@@ -252,24 +272,24 @@ def reenviar_produto_pendente(
         try:
             if post_png and post_png.exists():
                 post_cdn_url = fb_client.upload_photo_to_cdn(post_png)
-                res_post = ig_client.publish_photo(post_cdn_url, caption)
+                res_post = ig_client.publish_photo(post_cdn_url, caption_post)
                 post_id = res_post.get("id")
                 resultado["canais"]["instagram_post"] = "SUCESSO"
-                registrar_resultado_canal(item_id, "instagram_post", "SUCESSO", id_externo=post_id, caminho_imagem=caminho_post)
+                registrar_resultado_canal(item_id, "instagram_post", "SUCESSO", id_externo=post_id, caminho_imagem=caminho_post, link_rastreado=link_post)
                 print(f"   ✅ Post Feed: Sucesso (ID: {post_id})")
             elif primary_image:
-                res_post = ig_client.publish_photo(primary_image, caption)
+                res_post = ig_client.publish_photo(primary_image, caption_post)
                 post_id = res_post.get("id")
                 resultado["canais"]["instagram_post"] = "SUCESSO"
-                registrar_resultado_canal(item_id, "instagram_post", "SUCESSO", id_externo=post_id, caminho_imagem=caminho_post)
+                registrar_resultado_canal(item_id, "instagram_post", "SUCESSO", id_externo=post_id, caminho_imagem=caminho_post, link_rastreado=link_post)
                 print(f"   ✅ Post Feed: Sucesso com imagem original (ID: {post_id})")
             else:
                 resultado["canais"]["instagram_post"] = "FALHA"
-                registrar_resultado_canal(item_id, "instagram_post", "FALHA", mensagem_erro="Imagem ausente para renderizar template de Post Feed", caminho_imagem=caminho_post)
+                registrar_resultado_canal(item_id, "instagram_post", "FALHA", mensagem_erro="Imagem ausente para renderizar template de Post Feed", caminho_imagem=caminho_post, link_rastreado=link_post)
                 print("   ⚠️ Post Feed: Não foi possível enviar (sem imagem).")
         except Exception as e:
             resultado["canais"]["instagram_post"] = "FALHA"
-            registrar_resultado_canal(item_id, "instagram_post", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_post)
+            registrar_resultado_canal(item_id, "instagram_post", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_post, link_rastreado=link_post)
             print(f"   ❌ Post Feed: Falha ({e})")
     elif "instagram_post" not in pendentes:
         print("🖼️  [4/5] Post Feed: Já concluído. Pulando.")
@@ -282,20 +302,20 @@ def reenviar_produto_pendente(
         caminho_reels = str(video_reels_mp4) if (video_reels_mp4 and video_reels_mp4.exists()) else (str(target_reels_img) if target_reels_img else None)
         try:
             if target_reels_img and target_reels_img.exists():
-                res_reels = ig_client.publish_reel_from_image(target_reels_img, caption)
+                res_reels = ig_client.publish_reel_from_image(target_reels_img, caption_reels)
                 reels_id = res_reels.get("id")
                 resultado["canais"]["instagram_reels"] = "SUCESSO"
                 if video_reels_mp4 and video_reels_mp4.exists():
                     caminho_reels = str(video_reels_mp4)
-                registrar_resultado_canal(item_id, "instagram_reels", "SUCESSO", id_externo=reels_id, caminho_imagem=caminho_reels)
+                registrar_resultado_canal(item_id, "instagram_reels", "SUCESSO", id_externo=reels_id, caminho_imagem=caminho_reels, link_rastreado=link_reels)
                 print(f"   ✅ Reels: Sucesso (ID: {reels_id})")
             else:
                 resultado["canais"]["instagram_reels"] = "FALHA"
-                registrar_resultado_canal(item_id, "instagram_reels", "FALHA", mensagem_erro="Imagem compatível ausente para renderizar Reels", caminho_imagem=caminho_reels)
-                print("   ⚠️ Reels: Não foi possível enviar (sem imagem compatível).")
+                registrar_resultado_canal(item_id, "instagram_reels", "FALHA", mensagem_erro="Imagem compatível ausente para Reels", caminho_imagem=caminho_reels, link_rastreado=link_reels)
+                print("   ⚠️ Reels: Não foi possível enviar (sem imagem).")
         except Exception as e:
             resultado["canais"]["instagram_reels"] = "FALHA"
-            registrar_resultado_canal(item_id, "instagram_reels", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_reels)
+            registrar_resultado_canal(item_id, "instagram_reels", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_reels, link_rastreado=link_reels)
             print(f"   ❌ Reels: Falha ({e})")
     elif "instagram_reels" not in pendentes:
         print("🎬 [5/5] Reels: Já concluído. Pulando.")

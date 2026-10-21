@@ -7,7 +7,7 @@ A integração com o Programa de Afiliados da Shopee Brasil é baseada em uma in
 * Endpoint único de produção: `https://open-api.affiliate.shopee.com.br/graphql`
 * Método HTTP: `POST`
 * Cabeçalho de conteúdo: `Content-Type: application/json`
-* Formato do corpo da requisição: JSON compactado contendo campos `query` e opcionalmente `variables`
+* Formato do corpo da requisição: JSON canônico compactado contendo campos `query` e opcionalmente `variables`
 * Formato de resposta: JSON no padrão GraphQL, com chave `data` para sucessos e chave `errors` para inconsistências
 
 ## 2. Autenticação e Geração de Assinatura
@@ -22,12 +22,10 @@ Authorization: SHA256 Credential={AppId},Timestamp={Timestamp},Signature={Signat
 
 Os elementos necessários para compor a autorização são:
 * `Credential`: identificador da aplicação (`AppId`) gerado no painel da Shopee.
-* `Timestamp`: carimbo de data e hora Unix atual, obrigatoriamente medido em segundos inteiros. Requisições com desvio de horário excessivo são rejeitadas.
+* `Timestamp`: carimbo de data e hora Unix atual, medido em segundos inteiros.
 * `Signature`: hash SHA-256 gerado em formato hexadecimal com letras minúsculas.
 
 ### Algoritmo de Cálculo da Assinatura
-
-A assinatura é o resultado da aplicação do algoritmo SHA-256 sobre a concatenação exata e estrita de quatro elementos, sem delimitadores, barras ou espaços intermediários:
 
 ```
 Signature = SHA256(AppId + Timestamp + Payload + Secret)
@@ -35,46 +33,55 @@ Signature = SHA256(AppId + Timestamp + Payload + Secret)
 
 1. `AppId`: identificador público da aplicação parceira.
 2. `Timestamp`: representação em string do carimbo Unix em segundos.
-3. `Payload`: corpo exato da requisição enviado no HTTP POST (string JSON serializada sem espaços extras).
+3. `Payload`: corpo exato da requisição enviado no HTTP POST (string JSON serializada com separadores canônicos sem espaços extras).
 4. `Secret`: chave secreta disponibilizada pela Shopee, mantida confidencial no servidor cliente.
 
-Uma inconsistência de espaçamento ou quebra de linha entre o payload serializado para cálculo do hash e o corpo efetivamente transmitido na rede invalidará a assinatura imediatamente.
-
-## 3. Escopo das Operações Principais
-
-A integração contempla três fluxos prioritários de negócio para automação da plataforma de afiliados.
+## 3. Especificação das Operações GraphQL Implementadas
 
 ### A. Geração de Links de Rastreamento (`generateShortLink`)
 
-Operação do tipo mutação utilizada para converter links originais de páginas da Shopee em links de afiliados encurtados, injetando sub-identificadores (subIds) para mensuração de campanhas e origens de tráfego.
+Converte links originais de páginas da Shopee em links encurtados de afiliado, injetando sub-identificadores (`subIds`) para mensuração de campanhas e origens de tráfego.
+
+**Restrição Crítica Validada:** O parâmetro `subIds` aceita exclusivamente caracteres alfanuméricos (`a-z`, `0-9`). A presença de sublinhados (`_`), hífens ou caracteres especiais gera erro `11001: Params Error : invalid sub id`.
 
 ```graphql
-mutation {
-  generateShortLink(
-    originUrl: "https://shopee.com.br/produto-exemplo-i.123.456",
-    subIds: ["campanha_promo", "canal_telegram"]
-  ) {
+mutation GenerateShortLink($input: ShortLinkInput!) {
+  generateShortLink(input: $input) {
     shortLink
   }
 }
 ```
 
+Mapeamento de subIds adotado no projeto:
+* WhatsApp: `wagrupo`
+* Facebook Page: `fbfeed`
+* Instagram Stories: `igstories`
+* Instagram Post: `igpost`
+* Instagram Reels: `igreels`
+
 ### B. Catálogo e Ofertas de Produtos (`productOfferV2`)
 
-Operação do tipo consulta (query) voltada à descoberta de ofertas ativas, produtos elegíveis à comissão, taxas vigentes e faixas de preço promocionais para sincronização ou vitrines locais.
+Consulta produtos elegíveis a comissão com filtros avançados.
+**Atenção Operacional:** Os argumentos opcionais não devem ser transmitidos com valor `null` na requisição, pois a Shopee interpreta `null` como filtro restritivo. A query deve ser construída dinamicamente contendo apenas os argumentos fornecidos.
 
 ```graphql
-query FetchProducts($page: Int, $limit: Int) {
-  productOfferV2(listType: 0, sortType: 2, page: $page, limit: $limit) {
+query FetchProductOffers($page: Int, $limit: Int, $sortType: Int, $keyword: String, $itemId: Int, $listType: Int) {
+  productOfferV2(page: $page, limit: $limit, sortType: $sortType, keyword: $keyword, itemId: $itemId, listType: $listType) {
     nodes {
       itemId
       productName
       price
       commissionRate
       commission
+      sales
+      ratingStar
+      imageUrl
       productLink
       offerLink
-      imageUrl
+      shopName
+      shopId
+      periodStartTime
+      periodEndTime
     }
     pageInfo {
       page
@@ -87,51 +94,54 @@ query FetchProducts($page: Int, $limit: Int) {
 
 ### C. Relatórios de Desempenho e Conversão (`conversionReport`)
 
-Operação para reconciliação financeira e acompanhamento de vendas geradas pelos links comissionados, retornando status de pedidos (pendente, aprovado, cancelado) e valores brutos e comissionados.
+Reconciliação financeira e acompanhamento de vendas geradas pelos links comissionados.
 
 ```graphql
-query ConversionReport($startDate: String, $endDate: String, $page: Int) {
-  conversionReport(startDate: $startDate, endDate: $endDate, page: $page) {
+query FetchConversionReport($purchaseTimeStart: Int, $purchaseTimeEnd: Int, $limit: Int, $scrollId: String) {
+  conversionReport(purchaseTimeStart: $purchaseTimeStart, purchaseTimeEnd: $purchaseTimeEnd, limit: $limit, scrollId: $scrollId) {
     nodes {
+      conversionId
       purchaseTime
-      orderId
-      subIds
-      itemPrice
+      conversionStatus
+      grossCommission
       totalCommission
-      orderStatus
+      netCommission
+      orders {
+        orderId
+        orderStatus
+        items {
+          itemId
+          itemName
+          itemPrice
+          itemCommission
+          itemTotalCommission
+          channelType
+        }
+      }
+    }
+    pageInfo {
+      limit
+      hasNextPage
+      scrollId
     }
   }
 }
 ```
 
-## 4. Fases de Execução da Integração
+## 4. Contratos de DTOs e Arquitetura no Backend
 
-### Fase 1: Configuração e Gerenciamento de Credenciais
-1. Obtenção do `AppId` e `Secret` através da aprovação no painel de desenvolvedores do Programa de Afiliados Shopee.
-2. Armazenamento das chaves em variáveis de ambiente (`.env`), sem expor credenciais no código-fonte.
-3. Criação de rotina de verificação de integridade das credenciais no boot da aplicação.
+### DTOs Implementados em `shopee/client.py`:
+* `ShopeeOfferItem`: entidade representativa do produto/oferta.
+* `ShopeeOfferSearchResult`: container paginado com nós e flags de navegação.
+* `ShopeeConversionItem`: registro individual de item faturado/comissionado.
 
-### Fase 2: Módulo Core de Comunicação (Client Shopee)
-1. Construção de classe ou módulo responsável por encapsular o cálculo de hash SHA-256 e montagem do cabeçalho `Authorization`.
-2. Implementação de camada de serialização JSON canônica (sem caracteres de espaçamento desnecessários) para garantir paridade total entre o payload assinado e o payload enviado.
-3. Tratamento de exceções e erros de protocolo GraphQL (diferenciação entre erro HTTP, erro de assinatura e erros semânticos na chave `errors`).
+### Endpoints REST Expostos em `server.py`:
+* `GET /api/shopee/ofertas`: listagem de ofertas em tempo real.
+* `POST /api/shopee/importar-ofertas`: inclusão em lote na tabela `produtos`.
+* `GET /api/shopee/conversoes`: resumo financeiro e listagem de conversões salvas.
+* `POST /api/shopee/sincronizar-conversoes`: disparo de job para reconciliação contábil com a Shopee.
+* `POST /api/shopee/gerar-link`: serviço interno de encurtamento com atribuição por canal.
 
-### Fase 3: Camada de Serviços de Negócio
-1. Serviço de encurtamento: API interna para receber URL da Shopee, aplicar parâmetros analíticos e persistir o link gerado.
-2. Serviço de ingestão de ofertas: rotina de consulta paginada a produtos em destaque para alimentar banco de dados ou fila de publicação.
-3. Serviço de conferência de conversões: tarefa agendada (job de conciliação) para consultar periodicamente conversões faturadas e atualizar bases financeiras.
-
-### Fase 4: Observabilidade e Resiliência
-1. Implementação de log estruturado omitindo chaves secretas.
-2. Monitoramento de limites de requisições por minuto impostos pela Shopee.
-3. Política de repetição com backoff exponencial para falhas de rede transitórias.
-
-## 5. Estrutura Recomendada no Projeto
-
-A arquitetura no diretório `shopee/` deve separar as responsabilidades de criptografia, transporte e modelos de negócio:
-
-* `shopee/client.py` (ou `client.js`): gerador de assinaturas, cabeçalhos e disparo HTTP POST.
-* `shopee/services/link_service`: lógica de conversão e rastreamento de URLs.
-* `shopee/services/catalog_service`: sincronização de ofertas e produtos comissionados.
-* `shopee/services/report_service`: conciliação periódica de pedidos e comissões.
-* `shopee/docs/`: documentações complementares e esquemas de dados.
+### Estrutura de Banco de Dados (`db/controle.py`):
+* Tabela `shopee_conversoes`: persistência histórica de compras faturadas com `conversion_id` único.
+* Coluna `link_rastreado` em `canais_status`: registro do link específico enviado em cada rede social.

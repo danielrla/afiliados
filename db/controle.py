@@ -77,6 +77,22 @@ def inicializar_banco(db_path: Path = DB_PATH) -> None:
         );
         """)
 
+        # Tabela de reconciliação de conversões da Shopee
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS shopee_conversoes (
+            conversion_id TEXT PRIMARY KEY,
+            order_id TEXT,
+            item_id TEXT,
+            item_name TEXT,
+            item_price REAL,
+            item_commission REAL,
+            order_status TEXT,
+            channel_type TEXT,
+            purchase_time TEXT,
+            criado_em TEXT
+        );
+        """)
+
         # Migrações incrementais seguras para bancos existentes
         cursor.execute("PRAGMA table_info(historico_logs);")
         cols_logs = [r["name"] for r in cursor.fetchall()]
@@ -89,6 +105,17 @@ def inicializar_banco(db_path: Path = DB_PATH) -> None:
             cursor.execute("ALTER TABLE produtos ADD COLUMN pasta_artes TEXT;")
         if "image_url" not in cols_prod:
             cursor.execute("ALTER TABLE produtos ADD COLUMN image_url TEXT;")
+        if "commission_rate" not in cols_prod:
+            cursor.execute("ALTER TABLE produtos ADD COLUMN commission_rate TEXT;")
+        if "sales" not in cols_prod:
+            cursor.execute("ALTER TABLE produtos ADD COLUMN sales INTEGER DEFAULT 0;")
+        if "rating_star" not in cols_prod:
+            cursor.execute("ALTER TABLE produtos ADD COLUMN rating_star REAL DEFAULT 0.0;")
+
+        cursor.execute("PRAGMA table_info(canais_status);")
+        cols_canais = [r["name"] for r in cursor.fetchall()]
+        if "link_rastreado" not in cols_canais:
+            cursor.execute("ALTER TABLE canais_status ADD COLUMN link_rastreado TEXT;")
 
         conn.commit()
 
@@ -188,6 +215,7 @@ def registrar_resultado_canal(
     id_externo: str | None = None,
     mensagem_erro: str | None = None,
     caminho_imagem: str | None = None,
+    link_rastreado: str | None = None,
     db_path: Path = DB_PATH,
 ) -> None:
     """Atualiza o resultado de envio de um canal, grava o caminho da mídia no log e recalcula o status geral."""
@@ -195,21 +223,23 @@ def registrar_resultado_canal(
     agora = datetime.datetime.now().isoformat()
     item_id_str = str(item_id)
     caminho_img_str = str(caminho_imagem) if caminho_imagem else None
+    link_rastreado_str = str(link_rastreado) if link_rastreado else None
 
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
 
         # Atualiza ou insere o status do canal incrementando o número de tentativas
         cursor.execute("""
-        INSERT INTO canais_status (item_id, canal, status, id_externo, mensagem_erro, tentativas, atualizado_em)
-        VALUES (?, ?, ?, ?, ?, 1, ?)
+        INSERT INTO canais_status (item_id, canal, status, id_externo, mensagem_erro, link_rastreado, tentativas, atualizado_em)
+        VALUES (?, ?, ?, ?, ?, ?, 1, ?)
         ON CONFLICT(item_id, canal) DO UPDATE SET
             status = excluded.status,
             id_externo = COALESCE(excluded.id_externo, canais_status.id_externo),
             mensagem_erro = excluded.mensagem_erro,
+            link_rastreado = COALESCE(excluded.link_rastreado, canais_status.link_rastreado),
             tentativas = canais_status.tentativas + 1,
             atualizado_em = excluded.atualizado_em;
-        """, (item_id_str, canal, status, id_externo, mensagem_erro, agora))
+        """, (item_id_str, canal, status, id_externo, mensagem_erro, link_rastreado_str, agora))
 
         # Adiciona no log de auditoria com o caminho da imagem
         cursor.execute("""
@@ -550,6 +580,83 @@ def localizar_artes_produto(item_id: str, pasta_artes_registrada: str | None = N
             return artes
 
     return artes
+
+
+def salvar_conversoes_shopee(conversoes: list[dict], db_path: Path = DB_PATH) -> int:
+    """Insere ou atualiza registros de conversão da Shopee para reconciliação contábil."""
+    if not conversoes:
+        return 0
+    inicializar_banco(db_path)
+    agora = datetime.datetime.now().isoformat()
+    total_salvos = 0
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        for c in conversoes:
+            conv_id = str(c.get("conversion_id") or "").strip()
+            if not conv_id:
+                continue
+            cursor.execute("""
+            INSERT INTO shopee_conversoes (
+                conversion_id, order_id, item_id, item_name, item_price,
+                item_commission, order_status, channel_type, purchase_time, criado_em
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(conversion_id) DO UPDATE SET
+                order_status = excluded.order_status,
+                item_commission = excluded.item_commission,
+                item_price = excluded.item_price;
+            """, (
+                conv_id,
+                str(c.get("order_id") or ""),
+                str(c.get("item_id") or ""),
+                str(c.get("item_name") or ""),
+                float(c.get("item_price") or 0.0),
+                float(c.get("item_commission") or 0.0),
+                str(c.get("order_status") or ""),
+                c.get("channel_type"),
+                str(c.get("purchase_time") or ""),
+                agora,
+            ))
+            total_salvos += 1
+        conn.commit()
+    return total_salvos
+
+
+def obter_resumo_conversoes(db_path: Path = DB_PATH) -> dict:
+    """Retorna métricas agregadas de comissões e pedidos faturados."""
+    inicializar_banco(db_path)
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) as total, COALESCE(SUM(item_commission), 0) as total_comissao, COALESCE(SUM(item_price), 0) as total_vendas FROM shopee_conversoes;")
+        geral = dict(cursor.fetchone())
+
+        cursor.execute("SELECT order_status, COUNT(*) as qtd FROM shopee_conversoes GROUP BY order_status;")
+        por_status = {r["order_status"]: r["qtd"] for r in cursor.fetchall()}
+
+        cursor.execute("SELECT channel_type, COUNT(*) as qtd, COALESCE(SUM(item_commission), 0) as comissao FROM shopee_conversoes WHERE channel_type IS NOT NULL GROUP BY channel_type;")
+        por_canal = [dict(r) for r in cursor.fetchall()]
+
+        return {
+            "total_pedidos": geral["total"],
+            "total_comissao_reais": round(float(geral["total_comissao"]), 2),
+            "total_vendas_reais": round(float(geral["total_vendas"]), 2),
+            "pedidos_por_status": por_status,
+            "comissao_por_canal": por_canal,
+        }
+
+
+def listar_conversoes(limite: int = 50, db_path: Path = DB_PATH) -> list[dict]:
+    """Lista as conversões registradas no banco por ordem decrescente."""
+    inicializar_banco(db_path)
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+        SELECT conversion_id, order_id, item_id, item_name, item_price, item_commission, order_status, channel_type, purchase_time, criado_em
+        FROM shopee_conversoes
+        ORDER BY rowid DESC
+        LIMIT ?;
+        """, (limite,))
+        return [dict(r) for r in cursor.fetchall()]
+
 
 
 

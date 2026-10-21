@@ -127,9 +127,29 @@ def publicar_produto(
 
     print(f"\n==========================================")
     print(f"📦 Processando: {item_name} (ID: {item_id})")
-    print(f"🔗 Link de Afiliado: {offer_link}")
+    print(f"🔗 Link de Afiliado Base: {offer_link}")
     pendentes = [c for c in CANAIS_OBRIGATORIOS if status_canais.get(c) != "SUCESSO"]
     print(f"📋 Canais pendentes ({len(pendentes)}): {', '.join(pendentes)}")
+
+    # Geração de links rastreados por canal via Shopee Affiliate API
+    shopee_client = None
+    try:
+        from shopee.client import ShopeeAffiliateClient
+        shopee_client = ShopeeAffiliateClient()
+    except Exception:
+        pass
+
+    origin_link = product_link or offer_link
+    link_wa = (shopee_client.gerar_link_canal(origin_link, "whatsapp") if shopee_client else None) or offer_link
+    link_fb = (shopee_client.gerar_link_canal(origin_link, "facebook") if shopee_client else None) or offer_link
+    link_stories = (shopee_client.gerar_link_canal(origin_link, "instagram_stories") if shopee_client else None) or offer_link
+    link_post = (shopee_client.gerar_link_canal(origin_link, "instagram_post") if shopee_client else None) or offer_link
+    link_reels = (shopee_client.gerar_link_canal(origin_link, "instagram_reels") if shopee_client else None) or offer_link
+
+    caption_wa = format_caption(item_name, link_wa, price)
+    caption_fb = format_caption(item_name, link_fb, price)
+    caption_post = format_caption(item_name, link_post, price)
+    caption_reels = format_caption(item_name, link_reels, price)
 
     # 1. Obtenção das imagens do produto
     print("🖼️  Buscando imagens do produto na Shopee...")
@@ -147,7 +167,7 @@ def publicar_produto(
     if not primary_image:
         print("⚠️ Nenhuma imagem identificada para o produto. Prosseguindo com envio de texto onde aplicável.")
 
-    caption = format_caption(item_name, offer_link, price)
+    caption = caption_wa
     resultado = {
         "item_name": item_name,
         "whatsapp": None,
@@ -196,13 +216,13 @@ def publicar_produto(
     else:
         print("💬 [1/3] Publicando no WhatsApp...")
         try:
-            res_wa = wa_client.send_to_group(caption, image_url=primary_image)
+            res_wa = wa_client.send_to_group(caption_wa, image_url=primary_image)
             msg_id = res_wa.get("messageId") or res_wa.get("zaapId")
             resultado["whatsapp"] = msg_id
-            registrar_resultado_canal(item_id, "whatsapp", "SUCESSO", id_externo=msg_id, caminho_imagem=caminho_wa)
+            registrar_resultado_canal(item_id, "whatsapp", "SUCESSO", id_externo=msg_id, caminho_imagem=caminho_wa, link_rastreado=link_wa)
             print(f"   ✅ WhatsApp: Sucesso (ID: {msg_id})")
         except Exception as e:
-            registrar_resultado_canal(item_id, "whatsapp", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_wa)
+            registrar_resultado_canal(item_id, "whatsapp", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_wa, link_rastreado=link_wa)
             print(f"   ❌ WhatsApp: Falha ({e})")
 
     # 2 - Publicar no facebook:
@@ -214,15 +234,15 @@ def publicar_produto(
         print("📘 [2/3] Publicando no Facebook...")
         try:
             if primary_image:
-                res_fb = fb_client.publish_photo(primary_image, caption)
+                res_fb = fb_client.publish_photo(primary_image, caption_fb)
             else:
-                res_fb = fb_client.publish_post(caption, link=offer_link)
+                res_fb = fb_client.publish_post(caption_fb, link=link_fb)
             post_id = res_fb.get("post_id") or res_fb.get("id")
             resultado["facebook"] = post_id
-            registrar_resultado_canal(item_id, "facebook", "SUCESSO", id_externo=post_id, caminho_imagem=caminho_fb)
+            registrar_resultado_canal(item_id, "facebook", "SUCESSO", id_externo=post_id, caminho_imagem=caminho_fb, link_rastreado=link_fb)
             print(f"   ✅ Facebook: Sucesso (ID: {post_id})")
         except Exception as e:
-            registrar_resultado_canal(item_id, "facebook", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_fb)
+            registrar_resultado_canal(item_id, "facebook", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_fb, link_rastreado=link_fb)
             print(f"   ❌ Facebook: Falha ({e})")
 
     # 3 - Publicar no Instagram:
@@ -243,19 +263,19 @@ def publicar_produto(
                 res_ig_story = ig_client.publish_story(story_cdn_url)
                 story_id = res_ig_story.get("id")
                 resultado["instagram_stories"] = story_id
-                registrar_resultado_canal(item_id, "instagram_stories", "SUCESSO", id_externo=story_id, caminho_imagem=caminho_story)
+                registrar_resultado_canal(item_id, "instagram_stories", "SUCESSO", id_externo=story_id, caminho_imagem=caminho_story, link_rastreado=link_stories)
                 print(f"      ✅ Stories: Publicado com template! (ID: {story_id})")
             elif primary_image:
                 res_ig_story = ig_client.publish_story(primary_image)
                 story_id = res_ig_story.get("id")
                 resultado["instagram_stories"] = story_id
-                registrar_resultado_canal(item_id, "instagram_stories", "SUCESSO", id_externo=story_id, caminho_imagem=caminho_story)
+                registrar_resultado_canal(item_id, "instagram_stories", "SUCESSO", id_externo=story_id, caminho_imagem=caminho_story, link_rastreado=link_stories)
                 print(f"      ✅ Stories: Publicado com imagem original! (ID: {story_id})")
             else:
-                registrar_resultado_canal(item_id, "instagram_stories", "FALHA", mensagem_erro="Imagem ausente para renderizar template de Stories", caminho_imagem=caminho_story)
+                registrar_resultado_canal(item_id, "instagram_stories", "FALHA", mensagem_erro="Imagem ausente para renderizar template de Stories", caminho_imagem=caminho_story, link_rastreado=link_stories)
                 print("      ⚠️ Stories: Ignorado (sem imagem).")
         except Exception as e:
-            registrar_resultado_canal(item_id, "instagram_stories", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_story)
+            registrar_resultado_canal(item_id, "instagram_stories", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_story, link_rastreado=link_stories)
             print(f"      ❌ Stories: Falha ({e})")
 
     # 3.2.3 - Post: Publicar a imagem da etapa anterior
@@ -267,22 +287,22 @@ def publicar_produto(
         try:
             if post_png and post_png.exists():
                 post_cdn_url = fb_client.upload_photo_to_cdn(post_png)
-                res_ig_post = ig_client.publish_photo(post_cdn_url, caption)
+                res_ig_post = ig_client.publish_photo(post_cdn_url, caption_post)
                 post_id = res_ig_post.get("id")
                 resultado["instagram_post"] = post_id
-                registrar_resultado_canal(item_id, "instagram_post", "SUCESSO", id_externo=post_id, caminho_imagem=caminho_post)
+                registrar_resultado_canal(item_id, "instagram_post", "SUCESSO", id_externo=post_id, caminho_imagem=caminho_post, link_rastreado=link_post)
                 print(f"      ✅ Post no Feed: Publicado com template! (ID: {post_id})")
             elif primary_image:
-                res_ig_post = ig_client.publish_photo(primary_image, caption)
+                res_ig_post = ig_client.publish_photo(primary_image, caption_post)
                 post_id = res_ig_post.get("id")
                 resultado["instagram_post"] = post_id
-                registrar_resultado_canal(item_id, "instagram_post", "SUCESSO", id_externo=post_id, caminho_imagem=caminho_post)
+                registrar_resultado_canal(item_id, "instagram_post", "SUCESSO", id_externo=post_id, caminho_imagem=caminho_post, link_rastreado=link_post)
                 print(f"      ✅ Post no Feed: Publicado com imagem original! (ID: {post_id})")
             else:
-                registrar_resultado_canal(item_id, "instagram_post", "FALHA", mensagem_erro="Imagem ausente para renderizar template de Post Feed", caminho_imagem=caminho_post)
+                registrar_resultado_canal(item_id, "instagram_post", "FALHA", mensagem_erro="Imagem ausente para renderizar template de Post Feed", caminho_imagem=caminho_post, link_rastreado=link_post)
                 print("      ⚠️ Post no Feed: Ignorado (sem imagem).")
         except Exception as e:
-            registrar_resultado_canal(item_id, "instagram_post", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_post)
+            registrar_resultado_canal(item_id, "instagram_post", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_post, link_rastreado=link_post)
             print(f"      ❌ Post no Feed: Falha ({e})")
 
     # 3.2.4 - Reals: Publicar a imagem da etapa anterior
@@ -295,19 +315,19 @@ def publicar_produto(
         print("   🎬 [Instagram 3/3] Publicando Reels...")
         try:
             if target_reels_img and target_reels_img.exists():
-                res_ig_reels = ig_client.publish_reel_from_image(target_reels_img, caption)
+                res_ig_reels = ig_client.publish_reel_from_image(target_reels_img, caption_reels)
                 reels_id = res_ig_reels.get("id")
                 resultado["instagram_reels"] = reels_id
                 # Atualiza caminho_reels caso o mp4 tenha sido gerado durante a chamada
                 if video_reels_mp4 and video_reels_mp4.exists():
                     caminho_reels = str(video_reels_mp4)
-                registrar_resultado_canal(item_id, "instagram_reels", "SUCESSO", id_externo=reels_id, caminho_imagem=caminho_reels)
+                registrar_resultado_canal(item_id, "instagram_reels", "SUCESSO", id_externo=reels_id, caminho_imagem=caminho_reels, link_rastreado=link_reels)
                 print(f"      ✅ Reels: Publicado com sucesso! (ID: {reels_id})")
             else:
-                registrar_resultado_canal(item_id, "instagram_reels", "FALHA", mensagem_erro="Imagem compatível ausente para renderizar Reels", caminho_imagem=caminho_reels)
+                registrar_resultado_canal(item_id, "instagram_reels", "FALHA", mensagem_erro="Imagem compatível ausente para renderizar Reels", caminho_imagem=caminho_reels, link_rastreado=link_reels)
                 print("      ⚠️ Reels: Ignorado (sem imagem).")
         except Exception as e:
-            registrar_resultado_canal(item_id, "instagram_reels", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_reels)
+            registrar_resultado_canal(item_id, "instagram_reels", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_reels, link_rastreado=link_reels)
             print(f"      ❌ Reels: Falha ({e})")
 
     return resultado

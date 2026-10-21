@@ -16,7 +16,7 @@ from pydantic import BaseModel
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
-from shopee.client import load_env
+from shopee.client import load_env, ShopeeAffiliateClient
 from facebook.client import FacebookPageClient
 from instagran.client import InstagramClient
 from whatsapp.client import ZApiClient
@@ -29,6 +29,10 @@ from db.controle import (
     excluir_produto,
     excluir_lote_produtos,
     inserir_lote_produtos,
+    registrar_produto,
+    salvar_conversoes_shopee,
+    obter_resumo_conversoes,
+    listar_conversoes,
     CANAIS_OBRIGATORIOS,
 )
 from reenviar_falhas import reenviar_produto_pendente
@@ -323,6 +327,117 @@ def get_integracoes_status():
         status_dict["shopee"] = {"configurado": False, "mensagem": str(e)}
 
     return status_dict
+
+
+class ShopeeImportarOfertasRequest(BaseModel):
+    itens: list[dict]
+
+
+class ShopeeGerarLinkRequest(BaseModel):
+    origin_url: str
+    canal: Optional[str] = "whatsapp"
+    sub_ids: Optional[list[str]] = None
+
+
+@app.get("/api/shopee/ofertas")
+def get_shopee_ofertas(
+    keyword: Optional[str] = Query(None, description="Palavra-chave para busca"),
+    sort_type: int = Query(2, description="Ordenação (1=relevância, 2=vendas, 5=comissão)"),
+    page: int = Query(1, ge=1, description="Número da página"),
+    limit: int = Query(20, ge=1, le=50, description="Limite de itens por página"),
+    item_id: Optional[int] = Query(None, description="Filtrar por Item ID"),
+):
+    """Consulta ofertas elegíveis a comissão via Shopee Affiliate Open API."""
+    try:
+        client = ShopeeAffiliateClient()
+        resultado = client.buscar_ofertas(
+            keyword=keyword,
+            sort_type=sort_type,
+            page=page,
+            limit=limit,
+            item_id=item_id,
+        )
+        return resultado.to_dict()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao consultar API Shopee: {e}")
+
+
+@app.post("/api/shopee/importar-ofertas")
+def post_shopee_importar_ofertas(payload: ShopeeImportarOfertasRequest):
+    """Importa produtos obtidos via API da Shopee diretamente para o banco de dados do Hub."""
+    if not payload.itens:
+        raise HTTPException(status_code=400, detail="Nenhum item informado para importação")
+
+    total_importados = 0
+    for it in payload.itens:
+        item_id = str(it.get("item_id") or it.get("itemId") or "").strip()
+        if not item_id:
+            continue
+        prod_data = {
+            "item_id": item_id,
+            "item_name": it.get("product_name") or it.get("productName") or f"Produto {item_id}",
+            "offer_link": it.get("offer_link") or it.get("offerLink") or "",
+            "product_link": it.get("product_link") or it.get("productLink") or "",
+            "price": str(it.get("price") or "0"),
+            "image_url": it.get("image_url") or it.get("imageUrl") or "",
+            "commission_rate": str(it.get("commission_rate") or it.get("commissionRate") or ""),
+            "sales": int(it.get("sales") or 0),
+            "rating_star": float(it.get("rating_star") or it.get("ratingStar") or 0.0),
+        }
+        if registrar_produto(prod_data, ignorar_se_existir=False):
+            total_importados += 1
+
+    return {
+        "sucesso": True,
+        "total_importados": total_importados,
+        "mensagem": f"{total_importados} produto(s) importado(s) com sucesso para o banco de dados.",
+    }
+
+
+@app.get("/api/shopee/conversoes")
+def get_shopee_conversoes(limite: int = Query(50, ge=1, le=200)):
+    """Retorna o resumo consolidado e histórico de conversões sincronizadas da Shopee."""
+    resumo = obter_resumo_conversoes()
+    lista = listar_conversoes(limite=limite)
+    return {
+        "resumo": resumo,
+        "conversoes": lista,
+    }
+
+
+@app.post("/api/shopee/sincronizar-conversoes")
+def post_sincronizar_conversoes(limit: int = Query(50, ge=1, le=100)):
+    """Busca as conversões mais recentes via Shopee GraphQL e salva no banco de dados."""
+    try:
+        client = ShopeeAffiliateClient()
+        itens = client.obter_relatorio_conversoes(limit=limit)
+        dados = [it.to_dict() for it in itens]
+        total = salvar_conversoes_shopee(dados)
+        return {
+            "sucesso": True,
+            "total_sincronizados": total,
+            "mensagem": f"{total} registro(s) de conversão reconciliado(s) no banco.",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao sincronizar conversões: {e}")
+
+
+@app.post("/api/shopee/gerar-link")
+def post_gerar_link(payload: ShopeeGerarLinkRequest):
+    """Gera link encurtado parametrizado com subId específico de canal."""
+    if not payload.origin_url:
+        raise HTTPException(status_code=400, detail="origin_url é obrigatório")
+    try:
+        client = ShopeeAffiliateClient()
+        if payload.sub_ids:
+            link = client.gerar_link_rastreado(payload.origin_url, payload.sub_ids)
+        else:
+            link = client.gerar_link_canal(payload.origin_url, payload.canal or "whatsapp")
+        if not link:
+            raise HTTPException(status_code=500, detail="Não foi possível gerar link rastreado")
+        return {"sucesso": True, "link_rastreado": link}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/artes/{data}/{item_id}/{arquivo}")
