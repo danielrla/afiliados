@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal, computed } from '@angular/core';
+import { Component, OnInit, OnDestroy, inject, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { AfiliadosService } from './services/afiliados.service';
@@ -10,6 +10,8 @@ import {
   IntegracoesResposta,
   ShopeeOfertaItem,
   ShopeeConversoesResposta,
+  ListaItem,
+  EnvioStatusResposta,
 } from './models/produto.model';
 
 type AbaAtiva = 'produtos' | 'upload' | 'shopee' | 'conversoes' | 'dashboard' | 'integracoes';
@@ -21,7 +23,7 @@ type AbaAtiva = 'produtos' | 'upload' | 'shopee' | 'conversoes' | 'dashboard' | 
   templateUrl: './app.component.html',
   styleUrls: ['./app.component.css'],
 })
-export class AppComponent implements OnInit {
+export class AppComponent implements OnInit, OnDestroy {
   protected afiliadosService = inject(AfiliadosService);
 
   // Estados com Signals
@@ -34,10 +36,19 @@ export class AppComponent implements OnInit {
   // Filtros e Paginação
   buscaTermo = '';
   filtroStatus = 'TODOS';
+  filtroLista = 'TODAS';
   paginaAtual = 1;
   limitePorPagina = 10;
   carregandoLista = false;
   mensagemAlerta = signal<{ tipo: 'sucesso' | 'erro' | 'info'; texto: string } | null>(null);
+
+  // Módulo de Listas
+  listas = signal<ListaItem[]>([]);
+  modalImportarListaAberto = signal<boolean>(false);
+  modoLista: 'existente' | 'nova' | 'nenhuma' = 'existente';
+  listaSelecionada = '';
+  novaListaNome = '';
+  salvandoImportacaoComLista = signal<boolean>(false);
 
   // Upload de CSV
   arquivoUpload: File | null = null;
@@ -45,8 +56,16 @@ export class AppComponent implements OnInit {
   uploading = false;
   nomeArquivoUpload = '';
 
-  // Modo Dry-run
-  modoDryRun = false;
+  // Inclusão Rápida por Link (ex: https://meli.la/2e9SRc8)
+  novoLinkUrl = '';
+  novoLinkLista = '';
+  incluindoPorLink = signal<boolean>(false);
+
+  // Monitoramento e Auto-Refresh em Tempo Real por Etapa
+  envioStatus = signal<EnvioStatusResposta | null>(null);
+  autoRefreshAtivo = signal<boolean>(false);
+  private autoRefreshTimer: any = null;
+  private ciclosSemAtividade = 0;
 
   // Seleção múltipla de produtos
   itensSelecionados = signal<Set<string>>(new Set());
@@ -142,6 +161,7 @@ export class AppComponent implements OnInit {
   readonly canais = [
     { id: 'whatsapp', nome: 'WhatsApp', icone: '💬' },
     { id: 'facebook', nome: 'Facebook', icone: '📘' },
+    { id: 'facebook_reels', nome: 'Facebook Reels', icone: '🎬' },
     { id: 'instagram_stories', nome: 'Stories', icone: '📱' },
     { id: 'instagram_post', nome: 'Post Feed', icone: '📸' },
     { id: 'instagram_reels', nome: 'Reels', icone: '🎬' },
@@ -150,35 +170,161 @@ export class AppComponent implements OnInit {
   ngOnInit(): void {
     this.carregarDados();
     this.carregarIntegracoes();
+    this.carregarListas();
+    this.verificarEnvioEmAndamentoInicial();
   }
 
-  carregarDados(): void {
-    this.carregarListaProdutos();
+  ngOnDestroy(): void {
+    this.pararAutoRefreshEnvio();
+  }
+
+  carregarDados(silencioso: boolean = false): void {
+    this.carregarListaProdutos(silencioso);
     this.afiliadosService.carregarEstatisticas().subscribe({
       next: (stats) => this.estatisticas.set(stats),
     });
   }
 
-  carregarListaProdutos(): void {
-    this.carregandoLista = true;
+  carregarListas(): void {
+    this.afiliadosService.getListas().subscribe({
+      next: (listas) => {
+        this.listas.set(listas);
+        if (listas.length > 0 && !this.listaSelecionada) {
+          this.listaSelecionada = listas[0].nome;
+        }
+      },
+      error: () => { },
+    });
+  }
+
+  carregarListaProdutos(silencioso: boolean = false): void {
+    if (!silencioso) {
+      this.carregandoLista = true;
+    }
     this.afiliadosService
-      .getProdutos(this.paginaAtual, this.limitePorPagina, this.filtroStatus, this.buscaTermo)
+      .getProdutos(this.paginaAtual, this.limitePorPagina, this.filtroStatus, this.buscaTermo, this.filtroLista)
       .subscribe({
         next: (data) => {
           this.produtosData.set(data);
           this.carregandoLista = false;
         },
-        error: (err) => {
-          this.mostrarAlerta('erro', 'Falha ao conectar com o backend. Verifique se o servidor está ativo.');
+        error: () => {
+          if (!silencioso) {
+            this.mostrarAlerta('erro', 'Falha ao conectar com o backend. Verifique se o servidor está ativo.');
+          }
           this.carregandoLista = false;
         },
       });
   }
 
+  incluirProdutoPorLink(): void {
+    const url = (this.novoLinkUrl || '').trim();
+    if (!url) {
+      this.mostrarAlerta('erro', 'Cole o link do produto (ex: https://meli.la/2e9SRc8) para incluir.');
+      return;
+    }
+    this.incluindoPorLink.set(true);
+    this.afiliadosService.adicionarProdutoPorLink(url, this.novoLinkLista || undefined).subscribe({
+      next: (res) => {
+        this.incluindoPorLink.set(false);
+        this.novoLinkUrl = '';
+        this.mostrarAlerta('sucesso', res.mensagem || 'Produto incluído com sucesso a partir do link!');
+        this.paginaAtual = 1;
+        this.carregarDados();
+        this.carregarListas();
+      },
+      error: (err) => {
+        this.incluindoPorLink.set(false);
+        const msg = err.error?.detail || 'Não foi possível extrair os dados do link informado.';
+        this.mostrarAlerta('erro', msg);
+      },
+    });
+  }
+
+  verificarEnvioEmAndamentoInicial(): void {
+    this.afiliadosService.getEnvioStatus().subscribe({
+      next: (st) => {
+        if (st && st.ativo) {
+          this.envioStatus.set(st);
+          this.iniciarAutoRefreshEnvio();
+        }
+      },
+      error: () => {},
+    });
+  }
+
+  iniciarAutoRefreshEnvio(): void {
+    this.pararAutoRefreshEnvio();
+    this.autoRefreshAtivo.set(true);
+    this.ciclosSemAtividade = 0;
+
+    const executarCiclo = () => {
+      this.carregarDados(true);
+      const detalheAtual = this.produtoSelecionado();
+      if (detalheAtual?.produto?.item_id) {
+        this.afiliadosService.getDetalheProduto(detalheAtual.produto.item_id).subscribe({
+          next: (det) => this.produtoSelecionado.set(det),
+          error: () => {},
+        });
+      }
+
+      this.afiliadosService.getEnvioStatus().subscribe({
+        next: (st) => {
+          this.envioStatus.set(st);
+          const algumEnviandoNaTabela = (this.produtosData()?.itens || []).some(
+            (p) =>
+              p.status_geral === 'ENVIANDO' ||
+              Object.values(p.canais_status || {}).some((s) => s === 'ENVIANDO')
+          );
+
+          if (!st.ativo && !algumEnviandoNaTabela) {
+            this.ciclosSemAtividade++;
+            if (this.ciclosSemAtividade >= 2) {
+              this.pararAutoRefreshEnvio();
+              this.carregarDados(true);
+              this.mostrarAlerta('sucesso', 'Envio finalizado! Todos os canais foram atualizados.');
+            }
+          } else {
+            this.ciclosSemAtividade = 0;
+          }
+        },
+        error: () => {},
+      });
+    };
+
+    executarCiclo();
+    this.autoRefreshTimer = setInterval(executarCiclo, 2000);
+  }
+
+  pararAutoRefreshEnvio(): void {
+    if (this.autoRefreshTimer) {
+      clearInterval(this.autoRefreshTimer);
+      this.autoRefreshTimer = null;
+    }
+    this.autoRefreshAtivo.set(false);
+  }
+
+  obterLabelLink(url?: string): string {
+    const u = (url || '').toLowerCase();
+    if (u.includes('meli.la') || u.includes('mercadolivre')) {
+      return 'Link Mercado Livre';
+    }
+    if (u.includes('shopee') || u.includes('shp.ee')) {
+      return 'Link Shopee';
+    }
+    return 'Link Oferta';
+  }
+
+  onFiltroListaChange(novaLista: string): void {
+    this.filtroLista = novaLista;
+    this.paginaAtual = 1;
+    this.carregarListaProdutos();
+  }
+
   carregarIntegracoes(): void {
     this.afiliadosService.getIntegracoesStatus().subscribe({
       next: (res) => this.integracoes.set(res),
-      error: () => {},
+      error: () => { },
     });
   }
 
@@ -243,6 +389,7 @@ export class AppComponent implements OnInit {
         const nomeCurto = oferta.product_name.length > 30 ? oferta.product_name.substring(0, 30) + '...' : oferta.product_name;
         this.mostrarAlerta('sucesso', `"${nomeCurto}" importado para o Hub!`);
         this.carregarDados();
+        this.carregarListas();
       },
       error: (err) => {
         this.shopeeImportando.set(false);
@@ -251,23 +398,72 @@ export class AppComponent implements OnInit {
     });
   }
 
-  importarOfertasSelecionadas(): void {
+  abrirModalImportarLista(): void {
     const selIds = this.shopeeSelecionados();
     if (selIds.size === 0) return;
+    this.carregarListas();
+    if (this.listas().length > 0) {
+      this.modoLista = 'existente';
+      if (!this.listaSelecionada) {
+        this.listaSelecionada = this.listas()[0].nome;
+      }
+    } else {
+      this.modoLista = 'nova';
+    }
+    this.novaListaNome = '';
+    this.modalImportarListaAberto.set(true);
+  }
+
+  fecharModalImportarLista(): void {
+    if (this.salvandoImportacaoComLista()) return;
+    this.modalImportarListaAberto.set(false);
+    this.novaListaNome = '';
+  }
+
+  confirmarImportacaoComLista(): void {
+    const selIds = this.shopeeSelecionados();
+    if (selIds.size === 0) return;
+
+    let nomeLista: string | undefined = undefined;
+    if (this.modoLista === 'existente') {
+      nomeLista = this.listaSelecionada?.trim() || undefined;
+      if (!nomeLista && this.listas().length > 0) {
+        nomeLista = this.listas()[0].nome;
+      }
+    } else if (this.modoLista === 'nova') {
+      const digitado = this.novaListaNome.trim();
+      if (!digitado) {
+        this.mostrarAlerta('erro', 'Por favor, informe o nome para a nova lista.');
+        return;
+      }
+      nomeLista = digitado;
+    }
+
     const ofertas = this.shopeeOfertas().filter((o) => selIds.has(o.item_id));
+    this.salvandoImportacaoComLista.set(true);
     this.shopeeImportando.set(true);
-    this.afiliadosService.importarOfertasShopee(ofertas).subscribe({
+
+    this.afiliadosService.importarOfertasShopee(ofertas, nomeLista).subscribe({
       next: (res) => {
+        this.salvandoImportacaoComLista.set(false);
         this.shopeeImportando.set(false);
-        this.mostrarAlerta('sucesso', `${res.total_importados} oferta(s) importada(s) com sucesso para o banco de dados!`);
+        this.modalImportarListaAberto.set(false);
         this.shopeeSelecionados.set(new Set());
+        const msgLista = nomeLista ? ` vinculadas à lista "${nomeLista}"` : '';
+        this.mostrarAlerta('sucesso', `${res.total_importados} oferta(s) importada(s) com sucesso${msgLista}!`);
         this.carregarDados();
+        this.carregarListas();
       },
       error: (err) => {
+        this.salvandoImportacaoComLista.set(false);
         this.shopeeImportando.set(false);
         this.mostrarAlerta('erro', 'Erro ao importar ofertas: ' + (err.error?.detail || err.message));
       },
     });
+  }
+
+  importarOfertasSelecionadas(): void {
+    this.abrirModalImportarLista();
   }
 
   carregarConversoes(): void {
@@ -349,25 +545,36 @@ export class AppComponent implements OnInit {
     this.produtoSelecionado.set(null);
   }
 
+  onImageError(event: Event): void {
+    const target = event.target as HTMLImageElement;
+    if (target) {
+      target.style.display = 'none';
+      const parent = target.parentElement;
+      if (parent) {
+        parent.classList.add('has-error');
+      }
+    }
+  }
+
   reenviarProduto(itemId: string): void {
-    this.mostrarAlerta('info', `Iniciando reenvio de pendências para o item ${itemId}...`);
-    this.afiliadosService.reenviarProduto(itemId, this.modoDryRun).subscribe({
+    this.mostrarAlerta('info', `Iniciando envio/reenvio de pendências para o item ${itemId}...`);
+    this.afiliadosService.reenviarProduto(itemId).subscribe({
       next: (res) => {
-        this.mostrarAlerta('sucesso', res.mensagem || 'Reenvio agendado em segundo plano.');
-        setTimeout(() => this.carregarDados(), 2500);
+        this.mostrarAlerta('sucesso', res.mensagem || 'Envio iniciado em segundo plano.');
+        this.iniciarAutoRefreshEnvio();
       },
-      error: (err) => this.mostrarAlerta('erro', 'Falha ao solicitar reenvio do item.'),
+      error: () => this.mostrarAlerta('erro', 'Falha ao solicitar reenvio do item.'),
     });
   }
 
   reenviarTodasFalhas(): void {
     this.mostrarAlerta('info', 'Disparando rotina de reprocessamento em lote...');
-    this.afiliadosService.reenviarTodosFalhas(this.modoDryRun).subscribe({
+    this.afiliadosService.reenviarTodosFalhas().subscribe({
       next: (res) => {
         this.mostrarAlerta('sucesso', res.mensagem || 'Reenvio em lote em andamento.');
-        setTimeout(() => this.carregarDados(), 3000);
+        this.iniciarAutoRefreshEnvio();
       },
-      error: (err) => this.mostrarAlerta('erro', 'Falha ao iniciar reenvio em lote.'),
+      error: () => this.mostrarAlerta('erro', 'Falha ao iniciar reenvio em lote.'),
     });
   }
 
@@ -429,12 +636,12 @@ export class AppComponent implements OnInit {
     this.enviandoSelecionados.set(true);
     this.mostrarAlerta('info', `Iniciando envio para ${ids.length} produto(s) selecionado(s)...`);
 
-    this.afiliadosService.enviarSelecionados(ids, this.modoDryRun).subscribe({
+    this.afiliadosService.enviarSelecionados(ids).subscribe({
       next: (res) => {
         this.enviandoSelecionados.set(false);
         this.mostrarAlerta('sucesso', res.mensagem || 'Envio iniciado com sucesso.');
         this.limparSelecao();
-        setTimeout(() => this.carregarDados(), 3000);
+        this.iniciarAutoRefreshEnvio();
       },
       error: () => {
         this.enviandoSelecionados.set(false);
@@ -583,6 +790,8 @@ export class AppComponent implements OnInit {
       case 'SUCESSO':
       case 'CONCLUIDO':
         return 'badge-sucesso';
+      case 'ENVIANDO':
+        return 'badge-enviando';
       case 'PARCIAL':
         return 'badge-parcial';
       case 'FALHA':

@@ -20,7 +20,11 @@ from shopee.client import load_env
 from facebook.client import FacebookPageClient
 from instagran.client import InstagramClient
 from whatsapp.client import ZApiClient
-from produtos.reader import fetch_product_images
+try:
+    from produtos.reader import fetch_product_images
+except ImportError:
+    def fetch_product_images(*args, **kwargs) -> list[str]:
+        return []
 from instagran.tratarParaInstagran import gerar_todas_imagens, render_story_image
 from db.controle import (
     inicializar_banco,
@@ -88,11 +92,18 @@ def parse_csv(csv_path: Path) -> list[dict]:
 
 
 def format_caption(item_name: str, offer_link: str, price: str | None = None) -> str:
-    """Gera legenda padronizada e atraente para as redes sociais."""
-    preco_txt = f"\n💰 Por apenas R$ {price}" if price else ""
+    """Gera legenda padronizada e atraente para as redes sociais adaptada à loja de origem."""
+    preco_txt = f"\n💰 Por apenas R$ {price}" if price and str(price) not in ("0", "0.0", "--") else ""
+    link_lower = (offer_link or "").lower()
+    if "meli.la" in link_lower or "mercadolivre" in link_lower:
+        loja_txt = "no link oficial do Mercado Livre"
+    elif "shopee" in link_lower or "shp.ee" in link_lower:
+        loja_txt = "no link oficial da Shopee"
+    else:
+        loja_txt = "no link oficial"
     return (
         f"🔥 *{item_name}*{preco_txt}\n\n"
-        f"Garanta o seu com desconto no link oficial da Shopee:\n"
+        f"Garanta o seu com desconto {loja_txt}:\n"
         f"👉 {offer_link}"
     )
 
@@ -131,23 +142,27 @@ def publicar_produto(
     pendentes = [c for c in CANAIS_OBRIGATORIOS if status_canais.get(c) != "SUCESSO"]
     print(f"📋 Canais pendentes ({len(pendentes)}): {', '.join(pendentes)}")
 
-    # Geração de links rastreados por canal via Shopee Affiliate API
-    shopee_client = None
-    try:
-        from shopee.client import ShopeeAffiliateClient
-        shopee_client = ShopeeAffiliateClient()
-    except Exception:
-        pass
-
+    # Geração de links rastreados por canal via Shopee Affiliate API (apenas para links Shopee)
     origin_link = product_link or offer_link
+    eh_link_shopee = "shopee" in (origin_link or "").lower() or "shp.ee" in (origin_link or "").lower()
+    shopee_client = None
+    if eh_link_shopee:
+        try:
+            from shopee.client import ShopeeAffiliateClient
+            shopee_client = ShopeeAffiliateClient()
+        except Exception:
+            pass
+
     link_wa = (shopee_client.gerar_link_canal(origin_link, "whatsapp") if shopee_client else None) or offer_link
     link_fb = (shopee_client.gerar_link_canal(origin_link, "facebook") if shopee_client else None) or offer_link
+    link_fb_reels = (shopee_client.gerar_link_canal(origin_link, "facebook_reels") if shopee_client else None) or offer_link
     link_stories = (shopee_client.gerar_link_canal(origin_link, "instagram_stories") if shopee_client else None) or offer_link
     link_post = (shopee_client.gerar_link_canal(origin_link, "instagram_post") if shopee_client else None) or offer_link
     link_reels = (shopee_client.gerar_link_canal(origin_link, "instagram_reels") if shopee_client else None) or offer_link
 
     caption_wa = format_caption(item_name, link_wa, price)
     caption_fb = format_caption(item_name, link_fb, price)
+    caption_fb_reels = format_caption(item_name, link_fb_reels, price)
     caption_post = format_caption(item_name, link_post, price)
     caption_reels = format_caption(item_name, link_reels, price)
 
@@ -177,12 +192,12 @@ def publicar_produto(
         "instagram_reels": None,
     }
 
-    # 1 - Publicar no grupo do whatsapp com a imagem original do produto
+    # 1 - Publicar no grupo do whatsapp: regra de negócio exige imagem original do link, sem aplicar template
     caminho_wa = primary_image if primary_image else None
     if status_canais.get("whatsapp") == "SUCESSO":
         print("💬 [1/3] WhatsApp: Já publicado anteriormente com sucesso. Pulando.")
     else:
-        print("💬 [1/3] Publicando no WhatsApp com foto original do produto...")
+        print("💬 [1/3] Publicando no WhatsApp com imagem original do link (sem template)...")
         try:
             res_wa = wa_client.send_to_group(caption_wa, image_url=caminho_wa)
             msg_id = res_wa.get("messageId") or res_wa.get("zaapId")
@@ -193,12 +208,12 @@ def publicar_produto(
             registrar_resultado_canal(item_id, "whatsapp", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_wa, link_rastreado=link_wa)
             print(f"   ❌ WhatsApp: Falha ({e})")
 
-    # 2 - Publicar no facebook com a imagem original do produto
+    # 2 - Publicar no facebook (Post no Feed): regra de negócio exige imagem original do link, sem aplicar template
     caminho_fb = primary_image if primary_image else None
     if status_canais.get("facebook") == "SUCESSO":
         print("📘 [2/3] Facebook: Já publicado anteriormente com sucesso. Pulando.")
     else:
-        print("📘 [2/3] Publicando no Facebook com foto original do produto...")
+        print("📘 [2/3] Publicando no Facebook com imagem original do link (sem template)...")
         try:
             if caminho_fb:
                 res_fb = fb_client.publish_photo(caminho_fb, caption_fb)
@@ -212,14 +227,17 @@ def publicar_produto(
             registrar_resultado_canal(item_id, "facebook", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_fb, link_rastreado=link_fb)
             print(f"   ❌ Facebook: Falha ({e})")
 
-    # 3 - Publicar no Instagram (exclusivo com processamento de artes para Stories, Post e Reels)
-    precisa_instagram = any(status_canais.get(c) != "SUCESSO" for c in ["instagram_stories", "instagram_post", "instagram_reels"])
+    # 3 - Processamento de artes oficiais (instagran/templates) para Facebook Reels e Instagram
+    precisa_templates = any(
+        status_canais.get(c) != "SUCESSO"
+        for c in ["facebook_reels", "instagram_stories", "instagram_post", "instagram_reels"]
+    )
     artes = {}
-    if precisa_instagram:
-        print("📸 [3/3] Processando artes exclusivas para publicação no Instagram...")
+    if precisa_templates:
+        print("📸 Processando artes oficiais (instagran/templates) para redes sociais...")
         artes = localizar_artes_produto(item_id, produto.get("pasta_artes"))
-        if not artes.get("stories") or not artes.get("post") or not artes.get("reels"):
-            print("🎨 Gerando artes oficiais para Instagram (Stories, Post e Reels) com template...")
+        if not artes.get("stories") or not artes.get("post") or not artes.get("reels") or not artes.get("reels_mp4"):
+            print("🎨 Gerando artes oficiais (Stories, Post e Reels) com templates Linkolândia...")
             try:
                 clean_price = price.replace("R$", "").strip() if price else "OFERTA"
                 artes = gerar_todas_imagens({
@@ -240,13 +258,42 @@ def publicar_produto(
             except Exception as e:
                 print(f"   ⚠️ Falha na geração das imagens pelo template: {e}")
     else:
-        print("📸 [3/3] Instagram: Todos os canais já concluídos. Pulando geração de artes.")
+        print("📸 Redes Visuais: Todos os canais já concluídos. Pulando geração de artes.")
 
     story_png = artes.get("stories")
     post_png = artes.get("post")
     reels_png = artes.get("reeals") or artes.get("reels")
 
-    # 3.2.2 - Stories: com a imagem da etapa anterior
+    # Facebook Reels
+    target_reels_img = reels_png if (reels_png and reels_png.exists()) else story_png
+    video_reels_mp4 = target_reels_img.with_suffix(".mp4") if target_reels_img else None
+    caminho_fb_reels = str(video_reels_mp4) if (video_reels_mp4 and video_reels_mp4.exists()) else (str(target_reels_img) if target_reels_img else None)
+    if status_canais.get("facebook_reels") == "SUCESSO":
+        print("   ⏩ [Facebook Reels] Já publicado anteriormente. Pulando.")
+    else:
+        print("   🎬 [Facebook Reels] Publicando Reel...")
+        try:
+            if video_reels_mp4 and video_reels_mp4.exists():
+                res_fb_reels = fb_client.publish_reel(video_reels_mp4, caption_fb_reels)
+                fb_reel_id = res_fb_reels.get("video_id")
+                resultado["facebook_reels"] = fb_reel_id
+                registrar_resultado_canal(item_id, "facebook_reels", "SUCESSO", id_externo=fb_reel_id, caminho_imagem=str(video_reels_mp4), link_rastreado=link_fb_reels)
+                print(f"      ✅ Facebook Reels: Publicado com sucesso! (ID: {fb_reel_id})")
+            elif target_reels_img and target_reels_img.exists():
+                res_fb_reels = fb_client.publish_reel_from_image(target_reels_img, caption_fb_reels)
+                fb_reel_id = res_fb_reels.get("video_id")
+                resultado["facebook_reels"] = fb_reel_id
+                caminho_salvo = str(target_reels_img.with_suffix(".mp4")) if target_reels_img.with_suffix(".mp4").exists() else str(target_reels_img)
+                registrar_resultado_canal(item_id, "facebook_reels", "SUCESSO", id_externo=fb_reel_id, caminho_imagem=caminho_salvo, link_rastreado=link_fb_reels)
+                print(f"      ✅ Facebook Reels: Publicado via imagem! (ID: {fb_reel_id})")
+            else:
+                registrar_resultado_canal(item_id, "facebook_reels", "FALHA", mensagem_erro="Mídia compatível ausente para Facebook Reels", caminho_imagem=caminho_fb_reels, link_rastreado=link_fb_reels)
+                print("      ⚠️ Facebook Reels: Ignorado (sem mídia compatível).")
+        except Exception as e:
+            registrar_resultado_canal(item_id, "facebook_reels", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_fb_reels, link_rastreado=link_fb_reels)
+            print(f"      ❌ Facebook Reels: Falha ({e})")
+
+    # 4 - Stories Instagram
     caminho_story = str(story_png) if (story_png and story_png.exists()) else (primary_image if primary_image else None)
     if status_canais.get("instagram_stories") == "SUCESSO":
         print("   ⏩ [Instagram 1/3] Stories: Já publicado anteriormente. Pulando.")

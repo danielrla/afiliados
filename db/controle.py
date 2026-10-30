@@ -11,6 +11,7 @@ DB_PATH = DB_DIR / "publicacoes.db"
 CANAIS_OBRIGATORIOS = [
     "whatsapp",
     "facebook",
+    "facebook_reels",
     "instagram_stories",
     "instagram_post",
     "instagram_reels",
@@ -93,6 +94,15 @@ def inicializar_banco(db_path: Path = DB_PATH) -> None:
         );
         """)
 
+        # Tabela de listas temáticas de produtos
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS listas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome TEXT UNIQUE NOT NULL,
+            criado_em TEXT
+        );
+        """)
+
         # Migrações incrementais seguras para bancos existentes
         cursor.execute("PRAGMA table_info(historico_logs);")
         cols_logs = [r["name"] for r in cursor.fetchall()]
@@ -111,13 +121,82 @@ def inicializar_banco(db_path: Path = DB_PATH) -> None:
             cursor.execute("ALTER TABLE produtos ADD COLUMN sales INTEGER DEFAULT 0;")
         if "rating_star" not in cols_prod:
             cursor.execute("ALTER TABLE produtos ADD COLUMN rating_star REAL DEFAULT 0.0;")
+        if "lista" not in cols_prod:
+            cursor.execute("ALTER TABLE produtos ADD COLUMN lista TEXT;")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_produtos_lista ON produtos(lista);")
 
         cursor.execute("PRAGMA table_info(canais_status);")
         cols_canais = [r["name"] for r in cursor.fetchall()]
         if "link_rastreado" not in cols_canais:
             cursor.execute("ALTER TABLE canais_status ADD COLUMN link_rastreado TEXT;")
 
+        # Reconcilia produtos antigos marcados como CONCLUIDO antes da exigência dos 6 canais obrigatórios
+        cursor.execute("""
+        UPDATE produtos
+        SET status_geral = 'PARCIAL'
+        WHERE status_geral = 'CONCLUIDO'
+          AND (
+              SELECT COUNT(*) FROM canais_status cs
+              WHERE cs.item_id = produtos.item_id AND cs.status = 'SUCESSO'
+          ) < ?;
+        """, (len(CANAIS_OBRIGATORIOS),))
+
         conn.commit()
+
+
+def garantir_lista(nome: str, db_path: Path = DB_PATH) -> str:
+    """Garante que a lista temática exista na tabela listas e retorna seu nome sanitizado."""
+    inicializar_banco(db_path)
+    nome_limpo = str(nome or "").strip()
+    if not nome_limpo:
+        raise ValueError("O nome da lista não pode ser vazio.")
+
+    agora = datetime.datetime.now().isoformat()
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+        INSERT INTO listas (nome, criado_em)
+        VALUES (?, ?)
+        ON CONFLICT(nome) DO NOTHING;
+        """, (nome_limpo, agora))
+        conn.commit()
+    return nome_limpo
+
+
+def listar_todas_listas(db_path: Path = DB_PATH) -> list[dict]:
+    """Retorna todas as listas cadastradas acompanhadas da quantidade de produtos associados."""
+    inicializar_banco(db_path)
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+        SELECT 
+            l.id,
+            l.nome,
+            l.criado_em,
+            COUNT(p.item_id) as total_produtos
+        FROM listas l
+        LEFT JOIN produtos p ON p.lista = l.nome
+        GROUP BY l.id, l.nome, l.criado_em
+        ORDER BY l.nome COLLATE NOCASE ASC;
+        """)
+        return [dict(r) for r in cursor.fetchall()]
+
+
+def excluir_lista(nome: str, desvincular_produtos: bool = True, db_path: Path = DB_PATH) -> bool:
+    """Exclui uma lista cadastrada e opcionalmente desvincula os produtos associados a ela."""
+    inicializar_banco(db_path)
+    nome_limpo = str(nome or "").strip()
+    if not nome_limpo:
+        return False
+
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        if desvincular_produtos:
+            cursor.execute("UPDATE produtos SET lista = NULL WHERE lista = ?;", (nome_limpo,))
+        cursor.execute("DELETE FROM listas WHERE nome = ?;", (nome_limpo,))
+        removidos = cursor.rowcount
+        conn.commit()
+    return removidos > 0
 
 
 def registrar_produto(produto: dict, db_path: Path = DB_PATH, ignorar_se_existir: bool = True) -> bool:
@@ -132,6 +211,10 @@ def registrar_produto(produto: dict, db_path: Path = DB_PATH, ignorar_se_existir
     if not item_id:
         return False
     
+    lista = str(produto.get("lista", "")).strip() if produto.get("lista") else None
+    if lista:
+        garantir_lista(lista, db_path=db_path)
+
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
         if ignorar_se_existir:
@@ -140,8 +223,8 @@ def registrar_produto(produto: dict, db_path: Path = DB_PATH, ignorar_se_existir
                 return False
 
         cursor.execute("""
-        INSERT INTO produtos (item_id, item_name, offer_link, product_link, price, image_url, codigo_artes, pasta_artes, criado_em, atualizado_em)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO produtos (item_id, item_name, offer_link, product_link, price, image_url, codigo_artes, pasta_artes, lista, criado_em, atualizado_em)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(item_id) DO UPDATE SET
             item_name=excluded.item_name,
             offer_link=excluded.offer_link,
@@ -150,6 +233,7 @@ def registrar_produto(produto: dict, db_path: Path = DB_PATH, ignorar_se_existir
             image_url=COALESCE(excluded.image_url, produtos.image_url),
             codigo_artes=COALESCE(excluded.codigo_artes, produtos.codigo_artes),
             pasta_artes=COALESCE(excluded.pasta_artes, produtos.pasta_artes),
+            lista=COALESCE(excluded.lista, produtos.lista),
             atualizado_em=excluded.atualizado_em;
         """, (
             item_id,
@@ -160,6 +244,7 @@ def registrar_produto(produto: dict, db_path: Path = DB_PATH, ignorar_se_existir
             produto.get("image_url"),
             produto.get("codigo_artes"),
             produto.get("pasta_artes"),
+            lista,
             agora,
             agora,
         ))
@@ -206,6 +291,38 @@ def obter_status_canais(item_id: str, db_path: Path = DB_PATH) -> dict[str, str]
         cursor.execute("SELECT canal, status FROM canais_status WHERE item_id = ?", (str(item_id),))
         rows = cursor.fetchall()
         return {r["canal"]: r["status"] for r in rows}
+
+
+def obter_links_rastreados_produto(item_id: str, db_path: Path = DB_PATH) -> dict[str, str]:
+    """Retorna um dicionário com os links rastreados já gerados e salvos por canal para evitar chamadas repetidas à Shopee."""
+    inicializar_banco(db_path)
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT canal, link_rastreado FROM canais_status WHERE item_id = ? AND link_rastreado IS NOT NULL AND link_rastreado != ''",
+            (str(item_id),),
+        )
+        return {r["canal"]: r["link_rastreado"] for r in cursor.fetchall()}
+
+
+def marcar_canal_enviando(item_id: str, canal: str, db_path: Path = DB_PATH) -> None:
+    """Marca transitoriamente um canal e o produto como ENVIANDO para acompanhamento em tempo real na UI."""
+    inicializar_banco(db_path)
+    agora = datetime.datetime.now().isoformat()
+    item_id_str = str(item_id)
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+        INSERT INTO canais_status (item_id, canal, status, tentativas, atualizado_em)
+        VALUES (?, ?, 'ENVIANDO', 0, ?)
+        ON CONFLICT(item_id, canal) DO UPDATE SET
+            status = 'ENVIANDO',
+            atualizado_em = excluded.atualizado_em;
+        """, (item_id_str, canal, agora))
+        cursor.execute("""
+        UPDATE produtos SET status_geral = 'ENVIANDO', atualizado_em = ? WHERE item_id = ?;
+        """, (agora, item_id_str))
+        conn.commit()
 
 
 def registrar_resultado_canal(
@@ -314,7 +431,7 @@ def gerar_relatorio_terminal(db_path: Path = DB_PATH) -> None:
     print("\n=======================================================")
     print("📊 RELATÓRIO DE CONTROLE DE PUBLICAÇÕES (SQLite)")
     print("=======================================================")
-    print(f"Total Concluídos (5/5 canais): {resumo_geral.get('CONCLUIDO', 0)}")
+    print(f"Total Concluídos (6/6 canais): {resumo_geral.get('CONCLUIDO', 0)}")
     print(f"Total Parciais:                {resumo_geral.get('PARCIAL', 0)}")
     print(f"Total com Falha/Pendentes:     {resumo_geral.get('FALHA', 0) + resumo_geral.get('PENDENTE', 0)}")
     print("-------------------------------------------------------")
@@ -362,6 +479,7 @@ def listar_produtos_paginado(
     limite: int = 20,
     status_filtro: str | None = None,
     busca: str | None = None,
+    lista_filtro: str | None = None,
     db_path: Path = DB_PATH,
 ) -> dict:
     """Retorna uma lista paginada de produtos com seus status de canal acoplados."""
@@ -380,6 +498,13 @@ def listar_produtos_paginado(
     if busca:
         query_where.append("(item_id LIKE ? OR item_name LIKE ?)")
         params.extend([f"%{busca}%", f"%{busca}%"])
+
+    if lista_filtro and lista_filtro != "TODAS":
+        if lista_filtro == "SEM_LISTA":
+            query_where.append("(lista IS NULL OR lista = '')")
+        else:
+            query_where.append("lista = ?")
+            params.append(lista_filtro)
 
     where_clause = f"WHERE {' AND '.join(query_where)}" if query_where else ""
 
@@ -533,10 +658,17 @@ def excluir_lote_produtos(item_ids: list[str], db_path: Path = DB_PATH) -> int:
 
 
 def localizar_artes_produto(item_id: str, pasta_artes_registrada: str | None = None) -> dict[str, Path]:
-    """Localiza as artes geradas no disco (em db/img/) para evitar renderizações desnecessárias."""
+    """Localiza as artes geradas no disco (em db/img/) validando se são mais recentes que instagran/templates/."""
     artes = {}
     item_id_str = str(item_id).strip()
     pastas_candidatas = []
+
+    templates_dir = ROOT / "instagran" / "templates"
+    templates_mtime = 0.0
+    if templates_dir.exists():
+        for tpl_file in templates_dir.iterdir():
+            if tpl_file.is_file() and tpl_file.suffix.lower() in (".html", ".png", ".jpg", ".jpeg"):
+                templates_mtime = max(templates_mtime, tpl_file.stat().st_mtime)
 
     if pasta_artes_registrada:
         p_cand = Path(pasta_artes_registrada)
@@ -562,22 +694,32 @@ def localizar_artes_produto(item_id: str, pasta_artes_registrada: str | None = N
         post = pasta / f"{item_id_str}_post.png"
         reeals = pasta / f"{item_id_str}_reeals.png"
         reels_alias = pasta / f"{item_id_str}_reels.png"
+        reeals_mp4 = pasta / f"{item_id_str}_reeals.mp4"
 
-        if stories.exists():
-            artes["stories"] = stories
-        if post.exists():
-            artes["post"] = post
-        if reeals.exists():
-            artes["reeals"] = reeals
-            artes["reels"] = reeals
-        elif reels_alias.exists():
-            artes["reeals"] = reels_alias
-            artes["reels"] = reels_alias
+        cand_artes = {}
+        if stories.exists() and stories.stat().st_mtime >= templates_mtime:
+            cand_artes["stories"] = stories
+        if post.exists() and post.stat().st_mtime >= templates_mtime:
+            cand_artes["post"] = post
+        if reeals.exists() and reeals.stat().st_mtime >= templates_mtime:
+            cand_artes["reeals"] = reeals
+            cand_artes["reels"] = reeals
+        elif reels_alias.exists() and reels_alias.stat().st_mtime >= templates_mtime:
+            cand_artes["reeals"] = reels_alias
+            cand_artes["reels"] = reels_alias
 
-        if "stories" in artes and "post" in artes and "reels" in artes:
-            artes["pasta"] = pasta
-            artes["codigo"] = item_id_str
-            return artes
+        mp4_valido = (
+            reeals_mp4.exists()
+            and reeals_mp4.stat().st_mtime >= templates_mtime
+            and reeals_mp4.stat().st_size >= 50000
+        )
+
+        if "stories" in cand_artes and "post" in cand_artes and "reels" in cand_artes and mp4_valido:
+            cand_artes["reels_mp4"] = reeals_mp4
+            cand_artes["reeals_mp4"] = reeals_mp4
+            cand_artes["pasta"] = pasta
+            cand_artes["codigo"] = item_id_str
+            return cand_artes
 
     return artes
 

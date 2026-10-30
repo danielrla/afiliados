@@ -43,6 +43,11 @@
   padding: 0;
 }
 
+img {
+  max-width: 100%;
+  height: auto;
+}
+
 body {
   background-color: var(--bg-primary);
   background-image: 
@@ -194,15 +199,24 @@ h1, h2, h3, h4, h5 {
   border: 1px solid #e2e8f0;
 }
 
+.badge-enviando {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #93c5fd;
+  animation: pulseEnviando 1.4s infinite ease-in-out;
+}
+
 /* Badges de canais */
 .pill-canal {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  border-radius: var(--radius-sm);
-  font-size: 0.72rem;
+  justify-content: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 0.68rem;
   font-weight: 600;
+  white-space: nowrap;
 }
 .pill-canal.sucesso {
   background: #ecfdf5;
@@ -218,6 +232,17 @@ h1, h2, h3, h4, h5 {
   background: #f8fafc;
   color: #64748b;
   border: 1px solid #e2e8f0;
+}
+.pill-canal.enviando {
+  background: #dbeafe;
+  color: #1e40af;
+  border: 1px solid #60a5fa;
+  animation: pulseEnviando 1.2s infinite ease-in-out;
+}
+
+@keyframes pulseEnviando {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.65; transform: scale(0.97); }
 }
 
 /* Inputs e Selects */

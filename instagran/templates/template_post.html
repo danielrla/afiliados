@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=1080, height=1350, initial-scale=1.0">
-  <title>Post Shopee - {{PRODUCT_TITLE}}</title>
+  <title>Post Linkolândia - {{PRODUCT_TITLE}}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
@@ -24,7 +24,7 @@
       overflow: hidden;
       background-color: #F8FAFC;
       font-family: 'Plus Jakarta Sans', sans-serif;
-      color: #0F2A4A;
+      color: #132B4A;
       position: relative;
     }
 
@@ -32,10 +32,10 @@
       position: absolute;
       inset: 0;
       background:
-        radial-gradient(circle at 50% 10%, rgba(2, 99, 224, 0.08) 0%, transparent 50%),
-        radial-gradient(circle at 90% 40%, rgba(255, 110, 46, 0.09) 0%, transparent 45%),
-        radial-gradient(circle at 10% 70%, rgba(2, 99, 224, 0.06) 0%, transparent 45%),
-        radial-gradient(circle at 50% 95%, rgba(255, 110, 46, 0.08) 0%, transparent 50%),
+        radial-gradient(circle at 50% 10%, rgba(19, 43, 74, 0.08) 0%, transparent 50%),
+        radial-gradient(circle at 90% 40%, rgba(244, 184, 75, 0.16) 0%, transparent 45%),
+        radial-gradient(circle at 10% 70%, rgba(19, 43, 74, 0.06) 0%, transparent 45%),
+        radial-gradient(circle at 50% 95%, rgba(244, 184, 75, 0.14) 0%, transparent 50%),
         #F8FAFC;
       z-index: 1;
     }
@@ -43,7 +43,7 @@
     .dot-overlay {
       position: absolute;
       inset: 0;
-      background-image: radial-gradient(rgba(15, 42, 74, 0.04) 1.5px, transparent 1.5px);
+      background-image: radial-gradient(rgba(19, 43, 74, 0.05) 1.5px, transparent 1.5px);
       background-size: 32px 32px;
       z-index: 2;
     }
@@ -73,34 +73,35 @@
       align-items: center;
       gap: 14px;
       background: #FFFFFF;
-      border: 1px solid rgba(15, 42, 74, 0.08);
-      padding: 8px 22px 8px 12px;
+      border: 1.5px solid rgba(19, 43, 74, 0.12);
+      padding: 8px 24px 8px 12px;
       border-radius: 999px;
-      box-shadow: 0 6px 20px rgba(15, 42, 74, 0.05);
+      box-shadow: 0 6px 20px rgba(19, 43, 74, 0.07);
     }
 
     .brand-logo-img {
-      width: 50px;
-      height: 50px;
+      width: 54px;
+      height: 54px;
       border-radius: 50%;
-      object-fit: cover;
+      object-fit: contain;
     }
 
     .brand-name {
       font-family: 'Outfit', sans-serif;
       font-size: 26px;
       font-weight: 800;
-      color: #0056B3;
-      letter-spacing: -0.3px;
+      color: #132B4A;
+      letter-spacing: 0.4px;
     }
 
     .brand-name span {
-      color: #FF6E2E;
+      color: #D99620;
     }
 
     .promo-tag {
-      background: linear-gradient(135deg, #FF6E2E 0%, #EE4D2D 100%);
-      color: #FFFFFF;
+      background: linear-gradient(135deg, #172E4D 0%, #132B4A 100%);
+      color: #F4B84B;
+      border: 2px solid rgba(244, 184, 75, 0.50);
       font-family: 'Outfit', sans-serif;
       font-size: 22px;
       font-weight: 800;
@@ -108,7 +109,7 @@
       border-radius: 999px;
       text-transform: uppercase;
       letter-spacing: 0.8px;
-      box-shadow: 0 8px 20px rgba(238, 77, 45, 0.25);
+      box-shadow: 0 8px 20px rgba(19, 43, 74, 0.22);
     }
 
     /* Vitrine do Produto no Feed */
@@ -129,8 +130,8 @@
       border-radius: 36px;
       padding: 18px;
       box-shadow:
-        0 20px 50px rgba(15, 42, 74, 0.09),
-        0 0 0 1px rgba(15, 42, 74, 0.05);
+        0 20px 50px rgba(19, 43, 74, 0.10),
+        0 0 0 2px rgba(244, 184, 75, 0.28);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -146,9 +147,9 @@
     .trust-pill {
       position: absolute;
       bottom: 20px;
-      background: #FFFFFF;
-      border: 1px solid rgba(15, 42, 74, 0.10);
-      color: #0F2A4A;
+      background: #132B4A;
+      border: 1.5px solid #F4B84B;
+      color: #FFFFFF;
       padding: 8px 20px;
       border-radius: 999px;
       font-size: 18px;
@@ -156,13 +157,13 @@
       display: flex;
       align-items: center;
       gap: 6px;
-      box-shadow: 0 6px 16px rgba(15, 42, 74, 0.08);
+      box-shadow: 0 6px 16px rgba(19, 43, 74, 0.18);
     }
 
     .trust-pill svg {
       width: 20px;
       height: 20px;
-      fill: #FF6E2E;
+      fill: #F4B84B;
     }
 
     /* Informações e Preço */
@@ -180,7 +181,7 @@
       font-size: 38px;
       font-weight: 800;
       line-height: 1.25;
-      color: #0F2A4A;
+      color: #132B4A;
       max-width: 960px;
       display: -webkit-box;
       -webkit-line-clamp: 2;
@@ -196,14 +197,14 @@
       background: #FFFFFF;
       padding: 12px 36px;
       border-radius: 22px;
-      border: 1px solid rgba(15, 42, 74, 0.07);
-      box-shadow: 0 10px 28px rgba(15, 42, 74, 0.05);
+      border: 2px solid rgba(244, 184, 75, 0.45);
+      box-shadow: 0 10px 28px rgba(19, 43, 74, 0.07);
     }
 
     .price-label {
       font-size: 18px;
       font-weight: 700;
-      color: #64748B;
+      color: #475569;
       text-transform: uppercase;
       letter-spacing: 1px;
       margin-bottom: 2px;
@@ -220,7 +221,7 @@
       font-family: 'Outfit', sans-serif;
       font-size: 32px;
       font-weight: 800;
-      color: #0056B3;
+      color: #132B4A;
     }
 
     .price-value {
@@ -228,7 +229,7 @@
       font-size: 74px;
       font-weight: 900;
       letter-spacing: -1.5px;
-      color: #FF5500;
+      color: #D99014;
       line-height: 1;
     }
 
@@ -236,10 +237,10 @@
     .cta-container {
       width: 100%;
       background: #FFFFFF;
-      border: 2px solid rgba(255, 110, 46, 0.25);
+      border: 2px solid rgba(19, 43, 74, 0.14);
       border-radius: 30px;
       padding: 24px 32px;
-      box-shadow: 0 16px 40px rgba(15, 42, 74, 0.07);
+      box-shadow: 0 16px 40px rgba(19, 43, 74, 0.08);
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -249,8 +250,9 @@
 
     .cta-button {
       width: 100%;
-      background: linear-gradient(135deg, #FF6E2E 0%, #EE4D2D 60%, #D83B1C 100%);
-      color: #FFFFFF;
+      background: linear-gradient(135deg, #172E4D 0%, #132B4A 100%);
+      color: #F4B84B;
+      border: 2px solid #F4B84B;
       padding: 22px 28px;
       border-radius: 999px;
       display: flex;
@@ -262,13 +264,13 @@
       font-weight: 800;
       letter-spacing: 0.5px;
       text-transform: uppercase;
-      box-shadow: 0 12px 30px rgba(238, 77, 45, 0.30);
+      box-shadow: 0 12px 30px rgba(19, 43, 74, 0.28);
     }
 
     .cta-button svg {
       width: 32px;
       height: 32px;
-      fill: #FFFFFF;
+      fill: #F4B84B;
     }
 
     .cta-instructions {
@@ -284,7 +286,7 @@
     }
 
     .cta-instructions strong {
-      color: #0056B3;
+      color: #132B4A;
     }
   </style>
 </head>
@@ -297,8 +299,8 @@
     <!-- Topo -->
     <header class="header">
       <div class="brand-container">
-        <img src="dicacerta.png" alt="Dica Certa Shop" class="brand-logo-img">
-        <div class="brand-name">Dica Certa <span>Shopee</span></div>
+        <img src="linkolandia.png" alt="Linkolândia" class="brand-logo-img">
+        <div class="brand-name">LINKO<span>LÂNDIA</span></div>
       </div>
       <div class="promo-tag">ACHADINHO DO DIA</div>
     </header>

@@ -7,6 +7,7 @@ import json
 import os
 import random
 import re
+import shutil
 import subprocess
 import sys
 import urllib.error
@@ -160,21 +161,30 @@ def render_template_pillow(
     price_raw = product_data.get("price") or "OFERTA"
     price_str = str(price_raw).replace("R$", "").strip()
 
-    # 1. Base do Canvas com fundo suave #F8FAFC
+    # 1. Base do Canvas com fundo suave #F8FAFC idêntico ao template oficial
     img = Image.new("RGBA", (width, height), (248, 250, 252, 255))
-    draw = ImageDraw.Draw(img)
+    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    d_overlay = ImageDraw.Draw(overlay)
 
-    # Decorações de fundo (acentos circulares suaves em degradê)
-    draw.ellipse([-200, -200, 600, 600], fill=(2, 99, 224, 18))
-    draw.ellipse([width - 400, height // 3, width + 300, height // 3 + 700], fill=(255, 110, 46, 20))
-    draw.ellipse([-150, height - 500, 450, height + 100], fill=(2, 99, 224, 15))
+    # Decorações de fundo (acentos circulares suaves com as cores da Linkolândia: Navy #132B4A e Gold #F4B84B)
+    d_overlay.ellipse([-200, -200, 600, 600], fill=(19, 43, 74, 20))
+    d_overlay.ellipse([width - 400, height // 3, width + 300, height // 3 + 700], fill=(244, 184, 75, 32))
+    d_overlay.ellipse([-150, height - 500, 450, height + 100], fill=(19, 43, 74, 18))
 
     # Borda externa sutil
-    draw.rounded_rectangle([30, 30, width - 30, height - 30], radius=32, outline=(226, 232, 240, 255), width=3)
+    d_overlay.rounded_rectangle([30, 30, width - 30, height - 30], radius=32, outline=(226, 232, 240, 255), width=3)
 
-    # 2. Inclusão da logo oficial dicacerta.png
+    img = Image.alpha_composite(img, overlay)
+    draw = ImageDraw.Draw(img)
+
+    # 2. Inclusão da logo oficial linkolandia.png
     logo_path = None
-    for cand in [TEMPLATES_DIR / "dicacerta.png", MODULE_DIR / "dicacerta.png", ROOT / "dicacerta.png"]:
+    for cand in [
+        TEMPLATES_DIR / "linkolandia.png",
+        ROOT / "logo_1024.png",
+        TEMPLATES_DIR / "dicacerta.png",
+        MODULE_DIR / "dicacerta.png",
+    ]:
         if cand.exists():
             logo_path = cand
             break
@@ -183,29 +193,33 @@ def render_template_pillow(
     if logo_path:
         try:
             logo_img = Image.open(logo_path).convert("RGBA")
-            # Redimensiona mantendo proporção (largura ~260px)
-            logo_w = 260
+            # Redimensiona mantendo proporção (largura ~220px)
+            logo_w = 220
             logo_h = int(logo_img.height * (logo_w / logo_img.width))
             logo_img = logo_img.resize((logo_w, logo_h), Image.Resampling.LANCZOS)
             img.paste(logo_img, ((width - logo_w) // 2, y_cursor), logo_img)
-            y_cursor += logo_h + 35
+            y_cursor += logo_h + 30
         except Exception:
             y_cursor += 60
     else:
         y_cursor += 40
 
-    # 3. Badge / Selo de Oferta
+    # 3. Badge / Selo de Oferta (Navy #132B4A com texto e borda Amarelo Ouro #F4B84B)
     badge_font = _get_font(28, bold=True)
-    # Medir texto do badge
     bbox = draw.textbbox((0, 0), badge_text, font=badge_font)
     bw = (bbox[2] - bbox[0]) + 48
     bh = (bbox[3] - bbox[1]) + 24
     bx = (width - bw) // 2
     by = y_cursor
 
-    # Fundo do badge (Laranja Shopee com cantos arredondados)
-    draw.rounded_rectangle([bx, by, bx + bw, by + bh], radius=20, fill=(238, 77, 45, 255))
-    draw.text((bx + 24, by + 10), badge_text, font=badge_font, fill=(255, 255, 255, 255))
+    draw.rounded_rectangle(
+        [bx, by, bx + bw, by + bh],
+        radius=20,
+        fill=(19, 43, 74, 255),
+        outline=(244, 184, 75, 255),
+        width=2,
+    )
+    draw.text((bx + 24, by + 10), badge_text, font=badge_font, fill=(244, 184, 75, 255))
     y_cursor = by + bh + 45
 
     # 4. Card Central do Produto com foto
@@ -279,37 +293,43 @@ def render_template_pillow(
     for line in lines:
         t_box = draw.textbbox((0, 0), line, font=title_font)
         tx = (width - (t_box[2] - t_box[0])) // 2
-        draw.text((tx, y_cursor), line, font=title_font, fill=(15, 42, 74, 255))
+        draw.text((tx, y_cursor), line, font=title_font, fill=(19, 43, 74, 255))
         y_cursor += 50
 
     y_cursor += 20
 
-    # 6. Bloco de Preço com Destaque
+    # 6. Bloco de Preço com Destaque (Ouro Linkolândia #D99014)
     price_label_font = _get_font(26, bold=False)
     price_val_font = _get_font(68, bold=True)
     
-    draw.text(((width - 180) // 2, y_cursor), "POR APENAS", font=price_label_font, fill=(100, 116, 139, 255))
+    draw.text(((width - 180) // 2, y_cursor), "POR APENAS", font=price_label_font, fill=(71, 85, 105, 255))
     y_cursor += 38
 
     price_full_txt = f"R$ {price_str}"
     p_box = draw.textbbox((0, 0), price_full_txt, font=price_val_font)
     px = (width - (p_box[2] - p_box[0])) // 2
-    draw.text((px, y_cursor), price_full_txt, font=price_val_font, fill=(238, 77, 45, 255))
+    draw.text((px, y_cursor), price_full_txt, font=price_val_font, fill=(217, 144, 20, 255))
     y_cursor += 100
 
-    # 7. Botão de Chamada para Ação (CTA)
+    # 7. Botão de Chamada para Ação (CTA: Navy #132B4A com borda e texto Gold #F4B84B)
     cta_w = width - 180
     cta_h = 100
     cta_x = 90
     cta_y = height - 190 if tipo_norm in ("stories", "reeals", "reels") else y_cursor + 20
 
-    draw.rounded_rectangle([cta_x, cta_y, cta_x + cta_w, cta_y + cta_h], radius=26, fill=(2, 99, 224, 255))
+    draw.rounded_rectangle(
+        [cta_x, cta_y, cta_x + cta_w, cta_y + cta_h],
+        radius=26,
+        fill=(19, 43, 74, 255),
+        outline=(244, 184, 75, 255),
+        width=3,
+    )
     cta_txt = "🔥 GARANTA O SEU • LINK OFICIAL"
     cta_font = _get_font(32, bold=True)
     c_box = draw.textbbox((0, 0), cta_txt, font=cta_font)
     cx = cta_x + (cta_w - (c_box[2] - c_box[0])) // 2
     cy = cta_y + (cta_h - (c_box[3] - c_box[1])) // 2 - 2
-    draw.text((cx, cy), cta_txt, font=cta_font, fill=(255, 255, 255, 255))
+    draw.text((cx, cy), cta_txt, font=cta_font, fill=(244, 184, 75, 255))
 
     # Salva imagem final RGB de alta qualidade
     output_png = Path(output_png).resolve()
@@ -383,10 +403,17 @@ def render_template_to_image(
                 except Exception:
                     prod_data_uri = image_url
 
-            # Logo oficial da pasta instagran/templates
-            logo_path = TEMPLATES_DIR / "dicacerta.png"
-            if not logo_path.exists():
-                logo_path = MODULE_DIR / "dicacerta.png"
+            # Logo oficial da pasta instagran/templates (linkolandia.png prioritária)
+            logo_path = None
+            for cand in [
+                TEMPLATES_DIR / "linkolandia.png",
+                ROOT / "logo_1024.png",
+                TEMPLATES_DIR / "dicacerta.png",
+                MODULE_DIR / "dicacerta.png",
+            ]:
+                if cand.exists():
+                    logo_path = cand
+                    break
             b64_logo = base64.b64encode(logo_path.read_bytes()).decode("ascii")
             logo_data_uri = f"data:image/png;base64,{b64_logo}"
 
@@ -397,26 +424,26 @@ def render_template_to_image(
                 .replace("{{PRODUCT_LINK}}", link) \
                 .replace("{{PRODUCT_BADGE}}", badge_text) \
                 .replace("{{BRAND_LOGO}}", logo_data_uri) \
+                .replace("linkolandia.png", logo_data_uri) \
                 .replace("dicacerta.png", logo_data_uri)
 
             temp_html.write_text(rendered_html, encoding="utf-8")
 
             cmd = [
                 chrome_bin,
-                "--headless=new",
+                "--headless",
                 "--no-sandbox",
                 "--disable-gpu",
                 "--disable-dev-shm-usage",
                 "--no-first-run",
                 "--no-default-browser-check",
-                f"--user-data-dir={temp_profile}",
                 "--hide-scrollbars",
                 f"--window-size={config['width']},{config['height']}",
                 f"--screenshot={output_png}",
                 f"file://{temp_html.resolve()}",
             ]
 
-            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20)
             if output_png.exists() and output_png.stat().st_size > 1000:
                 print(f"   🎨 Renderizado com sucesso a partir do template oficial: {template_file.name}")
                 return output_png
@@ -528,24 +555,46 @@ def gerar_todas_imagens(
     reels_source_img = resultados.get("reeals") or resultados.get("stories")
     if reels_source_img and reels_source_img.exists():
         try:
+            ffmpeg_candidates = [
+                shutil.which("ffmpeg"),
+                "/usr/bin/ffmpeg",
+                "/usr/local/bin/ffmpeg",
+                "/opt/homebrew/bin/ffmpeg",
+            ]
+            ffmpeg_bin = next((c for c in ffmpeg_candidates if c and Path(c).exists()), "ffmpeg")
             cmd_ffmpeg = [
-                "ffmpeg",
+                str(ffmpeg_bin),
                 "-y",
                 "-loop", "1",
+                "-framerate", "30",
                 "-i", str(reels_source_img),
-                "-c:v", "libx264",
+                "-f", "lavfi",
+                "-i", "anoisesrc=d=5:c=pink:r=48000:a=0.002,aformat=channel_layouts=stereo",
                 "-t", "5",
+                "-vf", "scale=1080:1920,format=yuv420p",
+                "-c:v", "libx264",
+                "-profile:v", "high",
+                "-level", "4.1",
                 "-pix_fmt", "yuv420p",
-                "-vf", "scale=1080:1920",
+                "-r", "30",
+                "-g", "30",
+                "-b:v", "1800k",
+                "-maxrate", "2500k",
+                "-bufsize", "5000k",
+                "-c:a", "aac",
+                "-b:a", "128k",
+                "-ar", "48000",
+                "-ac", "2",
+                "-shortest",
+                "-movflags", "+faststart",
                 str(reels_mp4),
             ]
-            subprocess.run(cmd_ffmpeg, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20)
-            if reels_mp4.exists() and reels_mp4.stat().st_size > 1000:
+            subprocess.run(cmd_ffmpeg, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=45)
+            if reels_mp4.exists() and reels_mp4.stat().st_size > 10000:
                 resultados["reels_mp4"] = reels_mp4
                 resultados["reeals_mp4"] = reels_mp4
                 alias_mp4 = destino_dir / f"{codigo_usado}_reels.mp4"
-                if not alias_mp4.exists():
-                    alias_mp4.write_bytes(reels_mp4.read_bytes())
+                alias_mp4.write_bytes(reels_mp4.read_bytes())
         except Exception as e:
             print(f"Aviso ao gerar vídeo MP4 de Reels via ffmpeg: {e}")
 

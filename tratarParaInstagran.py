@@ -1,1 +1,0 @@
-instagran/tratarParaInstagran.py

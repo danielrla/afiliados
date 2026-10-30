@@ -2,10 +2,10 @@
   <!-- Top Navigation Header -->
   <header class="app-header glass-panel">
     <div class="header-brand">
-      <div class="brand-icon">🛍️</div>
+      <img src="/instagran/templates/linkolandia.png" alt="Afiliados" class="brand-logo-img" width="38" height="38">
       <div>
-        <h1 class="brand-title">Afiliados Hub</h1>
-        <p class="brand-subtitle">Automação Multi-Canal Shopee</p>
+        <h1 class="brand-title">Afiliados</h1>
+        <p class="brand-subtitle">Automação Multi-Canal de Ofertas</p>
       </div>
     </div>
 
@@ -27,16 +27,7 @@
 
     <!-- Header Actions -->
     <div class="header-actions">
-      <label class="dry-run-toggle" title="Executar envios sem publicar efetivamente nas APIs externas">
-        <input type="checkbox" [(ngModel)]="modoDryRun">
-        <span>Modo Simulação (Dry-Run)</span>
-      </label>
-
-      <button 
-        class="btn btn-primary" 
-        [disabled]="afiliadosService.reenviandoLote()" 
-        (click)="reenviarTodasFalhas()"
-      >
+      <button class="btn btn-primary" [disabled]="afiliadosService.reenviandoLote()" (click)="reenviarTodasFalhas()">
         <span *ngIf="afiliadosService.reenviandoLote()" class="spinner"></span>
         <span *ngIf="!afiliadosService.reenviandoLote()">🔄</span>
         {{ afiliadosService.reenviandoLote() ? 'Reenviando...' : 'Reenviar Todas as Falhas' }}
@@ -48,6 +39,25 @@
   <div *ngIf="mensagemAlerta()" class="notification-banner" [ngClass]="mensagemAlerta()?.tipo">
     <span>{{ mensagemAlerta()?.texto }}</span>
     <button class="btn-close" (click)="mensagemAlerta.set(null)">✕</button>
+  </div>
+
+  <!-- Live Auto-Refresh Progress Banner -->
+  <div *ngIf="autoRefreshAtivo() || envioStatus()?.ativo" class="live-progress-banner glass-panel">
+    <div class="live-progress-main">
+      <span class="spinner"></span>
+      <div class="live-progress-text">
+        <strong>Acompanhamento em tempo real (Auto-Refresh a cada 2s):</strong>
+        <span>
+          {{ envioStatus()?.descricao_etapa || 'Iniciando fila de publicação...' }}
+          <ng-container *ngIf="envioStatus()?.item_name_atual">
+            ({{ envioStatus()?.item_name_atual }})
+          </ng-container>
+        </span>
+      </div>
+    </div>
+    <div class="live-progress-counter" *ngIf="envioStatus()?.total">
+      Item {{ envioStatus()?.processados || 1 }} de {{ envioStatus()?.total }}
+    </div>
   </div>
 
   <!-- Navigation Tabs -->
@@ -78,41 +88,68 @@
   <main class="app-main">
     <!-- ABA 1: PRODUTOS -->
     <section *ngIf="abaAtiva() === 'produtos'" class="section-container">
+      <!-- Barra de Inclusão Rápida por Link -->
+      <div class="link-import-bar glass-panel">
+        <div class="link-import-label">
+          <span>🔗</span>
+          <strong>Incluir por Link:</strong>
+        </div>
+        <div class="link-import-inputs">
+          <input type="url" class="input-control link-url-input"
+            placeholder="Cole o link do produto (ex: https://meli.la/2e9SRc8 ou link Shopee)..."
+            [(ngModel)]="novoLinkUrl" (keyup.enter)="incluirProdutoPorLink()">
+          <select class="input-control select-control link-lista-select" [(ngModel)]="novoLinkLista"
+            title="Lista temática opcional">
+            <option value="">Sem Lista (Geral)</option>
+            <option *ngFor="let l of listas()" [value]="l.nome">📁 {{ l.nome }}</option>
+          </select>
+          <button class="btn btn-primary" [disabled]="incluindoPorLink() || !novoLinkUrl.trim()"
+            (click)="incluirProdutoPorLink()">
+            <span *ngIf="incluindoPorLink()" class="spinner"></span>
+            <span *ngIf="!incluindoPorLink()">➕</span>
+            {{ incluindoPorLink() ? 'Extraindo...' : 'Incluir Produto' }}
+          </button>
+        </div>
+      </div>
+
       <!-- Toolbar: Busca e Filtros -->
       <div class="table-toolbar glass-panel">
         <div class="search-box">
           <span class="search-icon">🔍</span>
-          <input 
-            type="text" 
-            class="input-control" 
-            placeholder="Buscar por nome do produto ou Item ID..." 
-            [(ngModel)]="buscaTermo" 
-            (keyup.enter)="onBuscaSubmit()"
-          >
+          <input type="text" class="input-control" placeholder="Buscar por nome do produto ou Item ID..."
+            [(ngModel)]="buscaTermo" (keyup.enter)="onBuscaSubmit()">
           <button class="btn btn-secondary" (click)="onBuscaSubmit()">Filtrar</button>
         </div>
 
         <div class="filters-group">
-          <label>Status:</label>
-          <select 
-            class="input-control select-control" 
-            [(ngModel)]="filtroStatus" 
-            (change)="onFiltroStatusChange(filtroStatus)"
-          >
-            <option value="TODOS">Todos os Status</option>
-            <option value="CONCLUIDO">Concluído (5/5)</option>
-            <option value="PARCIAL">Parcial</option>
-            <option value="PENDENTE">Pendente</option>
-            <option value="FALHA">Falha</option>
-          </select>
+          <div class="filter-item">
+            <label>Lista:</label>
+            <select class="input-control select-control" [(ngModel)]="filtroLista"
+              (change)="onFiltroListaChange(filtroLista)">
+              <option value="TODAS">Todas as Listas</option>
+              <option value="SEM_LISTA">Sem Lista (Geral)</option>
+              <option *ngFor="let l of listas()" [value]="l.nome">
+                📁 {{ l.nome }} ({{ l.total_produtos || 0 }})
+              </option>
+            </select>
+          </div>
+
+          <div class="filter-item">
+            <label>Status:</label>
+            <select class="input-control select-control" [(ngModel)]="filtroStatus"
+              (change)="onFiltroStatusChange(filtroStatus)">
+              <option value="TODOS">Todos os Status</option>
+              <option value="CONCLUIDO">Concluído (5/5)</option>
+              <option value="PARCIAL">Parcial</option>
+              <option value="PENDENTE">Pendente</option>
+              <option value="FALHA">Falha</option>
+            </select>
+          </div>
 
           <div class="limit-selector">
             <label>Exibir:</label>
-            <select 
-              class="input-control select-control" 
-              [ngModel]="limitePorPagina" 
-              (ngModelChange)="mudarLimite($event)"
-            >
+            <select class="input-control select-control" [ngModel]="limitePorPagina"
+              (ngModelChange)="mudarLimite($event)">
               <option [ngValue]="5">5</option>
               <option [ngValue]="10">10</option>
               <option [ngValue]="20">20</option>
@@ -134,19 +171,11 @@
         </div>
         <div class="selection-actions">
           <button class="btn btn-secondary btn-sm" (click)="limparSelecao()">Desmarcar Todos</button>
-          <button 
-            class="btn btn-danger btn-sm" 
-            [disabled]="excluindoSelecionados()" 
-            (click)="excluirSelecionados()"
-          >
+          <button class="btn btn-danger btn-sm" [disabled]="excluindoSelecionados()" (click)="excluirSelecionados()">
             <span *ngIf="excluindoSelecionados()" class="spinner"></span>
             🗑️ Excluir Selecionados
           </button>
-          <button 
-            class="btn btn-primary btn-sm" 
-            [disabled]="enviandoSelecionados()" 
-            (click)="enviarSelecionados()"
-          >
+          <button class="btn btn-primary btn-sm" [disabled]="enviandoSelecionados()" (click)="enviarSelecionados()">
             <span *ngIf="enviandoSelecionados()" class="spinner"></span>
             🚀 Enviar Selecionados
           </button>
@@ -154,52 +183,75 @@
       </div>
 
       <!-- Tabela de Produtos -->
-      <div class="table-container glass-panel">
+      <div class="table-container glass-panel" tabindex="0" role="region" aria-label="Tabela de controle de produtos">
         <div *ngIf="carregandoLista" class="loading-state">
           <span class="spinner"></span>
           <p>Carregando produtos cadastrados...</p>
         </div>
 
         <table *ngIf="!carregandoLista && produtosData()?.itens?.length" class="data-table">
+          <colgroup>
+            <col class="col-check">
+            <col class="col-img">
+            <col class="col-id">
+            <col class="col-produto">
+            <col class="col-preco">
+            <col class="col-status">
+            <col class="col-canal">
+            <col class="col-canal">
+            <col class="col-canal">
+            <col class="col-canal">
+            <col class="col-canal">
+            <col class="col-canal">
+            <col class="col-acoes">
+          </colgroup>
           <thead>
             <tr>
-              <th style="width: 40px; text-align: center;">
-                <input 
-                  type="checkbox" 
-                  [checked]="todosDestaPaginaSelecionados()" 
-                  (change)="toggleSelectTodos($event)"
-                  title="Selecionar todos os produtos desta página"
-                  class="custom-checkbox"
-                >
+              <th class="th-center">
+                <input type="checkbox" [checked]="todosDestaPaginaSelecionados()" (change)="toggleSelectTodos($event)"
+                  title="Selecionar todos os produtos desta página" class="custom-checkbox">
               </th>
-              <th>Item ID</th>
+              <th class="th-center">Img</th>
+              <th>ID</th>
               <th>Produto</th>
               <th>Preço</th>
-              <th>Status Geral</th>
-              <th>WhatsApp</th>
-              <th>Facebook</th>
+              <th>Status</th>
+              <th>Whats</th>
+              <th>FB Post</th>
+              <th>FB Reels</th>
               <th>Stories</th>
-              <th>Feed</th>
-              <th>Reels</th>
-              <th>Ações</th>
+              <th>IG Feed</th>
+              <th>IG Reels</th>
+              <th class="th-center">Ações</th>
             </tr>
           </thead>
           <tbody>
             <tr *ngFor="let item of produtosData()?.itens" class="table-row" (click)="abrirDetalhes(item.item_id)">
-              <td style="text-align: center;" (click)="$event.stopPropagation()">
-                <input 
-                  type="checkbox" 
-                  [checked]="isItemSelecionado(item.item_id)" 
-                  (change)="toggleSelectProduto(item.item_id, $event)"
-                  class="custom-checkbox"
-                >
+              <td class="td-center" (click)="$event.stopPropagation()">
+                <input type="checkbox" [checked]="isItemSelecionado(item.item_id)"
+                  (change)="toggleSelectProduto(item.item_id, $event)" class="custom-checkbox">
               </td>
-              <td class="font-mono text-muted">{{ item.item_id }}</td>
+              <td class="product-thumb-cell">
+                <div class="product-thumb-container">
+                  <img *ngIf="item.image_url" [src]="item.image_url" [alt]="item.item_name" class="product-thumb-img"
+                    width="34" height="34" loading="lazy" (error)="onImageError($event)">
+                  <div *ngIf="!item.image_url" class="product-thumb-placeholder">
+                    📦
+                  </div>
+                </div>
+              </td>
+              <td class="font-mono text-muted id-cell" [title]="item.item_id">{{ item.item_id }}</td>
               <td class="product-title-cell">
                 <span class="product-title" [title]="item.item_name">{{ item.item_name }}</span>
-                <a *ngIf="item.offer_link" [href]="item.offer_link" target="_blank" (click)="$event.stopPropagation()" class="link-affiliate">
-                  🔗 Link Shopee
-                </a>
+                <div class="product-meta-row">
+                  <span *ngIf="item.lista" class="badge-lista" title="Lista temática">
+                    🏷️ {{ item.lista }}
+                  </span>
+                  <a *ngIf="item.offer_link" [href]="item.offer_link" target="_blank" (click)="$event.stopPropagation()"
+                    class="link-affiliate">
+                    {{ obterLabelLink(item.offer_link) }}
+                  </a>
+                </div>
               </td>
               <td class="price-cell">R$ {{ item.price || '--' }}</td>
               <td>
@@ -218,7 +270,13 @@
                 </span>
               </td>
               <td>
-                <span class="pill-canal" [ngClass]="(item.canais_status['instagram_stories'] || 'PENDENTE').toLowerCase()">
+                <span class="pill-canal" [ngClass]="(item.canais_status['facebook_reels'] || 'PENDENTE').toLowerCase()">
+                  {{ item.canais_status['facebook_reels'] || 'PENDENTE' }}
+                </span>
+              </td>
+              <td>
+                <span class="pill-canal"
+                  [ngClass]="(item.canais_status['instagram_stories'] || 'PENDENTE').toLowerCase()">
                   {{ item.canais_status['instagram_stories'] || 'PENDENTE' }}
                 </span>
               </td>
@@ -228,23 +286,18 @@
                 </span>
               </td>
               <td>
-                <span class="pill-canal" [ngClass]="(item.canais_status['instagram_reels'] || 'PENDENTE').toLowerCase()">
+                <span class="pill-canal"
+                  [ngClass]="(item.canais_status['instagram_reels'] || 'PENDENTE').toLowerCase()">
                   {{ item.canais_status['instagram_reels'] || 'PENDENTE' }}
                 </span>
               </td>
               <td class="actions-cell" (click)="$event.stopPropagation()">
-                <button 
-                  class="btn-icon" 
-                  title="Reenviar canais pendentes deste produto" 
-                  (click)="reenviarProduto(item.item_id)"
-                >
+                <button class="btn-icon" title="Reenviar canais pendentes deste produto"
+                  (click)="reenviarProduto(item.item_id)">
                   🔄
                 </button>
-                <button 
-                  class="btn-icon btn-icon-danger" 
-                  title="Excluir produto do banco" 
-                  (click)="excluirItem(item.item_id, $event)"
-                >
+                <button class="btn-icon btn-icon-danger" title="Excluir produto do banco"
+                  (click)="excluirItem(item.item_id, $event)">
                   🗑️
                 </button>
               </td>
@@ -262,49 +315,29 @@
         <!-- Paginação -->
         <div *ngIf="produtosData() && produtosData()!.total_paginas > 0" class="pagination-footer">
           <span class="pagination-info">
-            Página {{ produtosData()?.pagina }} de {{ produtosData()?.total_paginas }} (Total: {{ produtosData()?.total }} produtos)
+            Página {{ produtosData()?.pagina }} de {{ produtosData()?.total_paginas }} (Total: {{ produtosData()?.total
+            }} produtos)
           </span>
           <div class="pagination-buttons">
-            <button 
-              class="page-btn" 
-              [disabled]="paginaAtual <= 1" 
-              (click)="mudarPagina(1)"
-              title="Primeira Página"
-            >
+            <button class="page-btn" [disabled]="paginaAtual <= 1" (click)="mudarPagina(1)" title="Primeira Página">
               «
             </button>
-            <button 
-              class="page-btn" 
-              [disabled]="paginaAtual <= 1" 
-              (click)="mudarPagina(paginaAtual - 1)"
-              title="Página Anterior"
-            >
+            <button class="page-btn" [disabled]="paginaAtual <= 1" (click)="mudarPagina(paginaAtual - 1)"
+              title="Página Anterior">
               ‹
             </button>
 
-            <button 
-              *ngFor="let p of obterArrayPaginas()" 
-              class="page-btn" 
-              [class.active]="p === paginaAtual"
-              (click)="mudarPagina(p)"
-            >
+            <button *ngFor="let p of obterArrayPaginas()" class="page-btn" [class.active]="p === paginaAtual"
+              (click)="mudarPagina(p)">
               {{ p }}
             </button>
 
-            <button 
-              class="page-btn" 
-              [disabled]="paginaAtual >= produtosData()!.total_paginas" 
-              (click)="mudarPagina(paginaAtual + 1)"
-              title="Próxima Página"
-            >
+            <button class="page-btn" [disabled]="paginaAtual >= produtosData()!.total_paginas"
+              (click)="mudarPagina(paginaAtual + 1)" title="Próxima Página">
               ›
             </button>
-            <button 
-              class="page-btn" 
-              [disabled]="paginaAtual >= produtosData()!.total_paginas" 
-              (click)="mudarPagina(produtosData()!.total_paginas)"
-              title="Última Página"
-            >
+            <button class="page-btn" [disabled]="paginaAtual >= produtosData()!.total_paginas"
+              (click)="mudarPagina(produtosData()!.total_paginas)" title="Última Página">
               »
             </button>
           </div>
@@ -318,21 +351,19 @@
         <div>
           <h2>Carga de Produtos via Arquivo CSV</h2>
           <p class="text-secondary" style="margin-top: 4px;">
-            Selecione ou arraste o arquivo CSV de produtos exportado da Shopee Afiliados para alimentar a fila de publicações.
+            Selecione ou arraste o arquivo CSV de produtos exportado da Shopee Afiliados para alimentar a fila de
+            publicações.
           </p>
         </div>
 
         <!-- Drag & Drop Zone -->
-        <div 
-          class="drop-zone" 
-          [class.has-file]="arquivoUpload"
-          (dragover)="onDragOver($event)" 
-          (drop)="onFileDrop($event)"
-        >
+        <div class="drop-zone" [class.has-file]="arquivoUpload" (dragover)="onDragOver($event)"
+          (drop)="onFileDrop($event)">
           <div *ngIf="!arquivoUpload" class="drop-prompt">
             <span class="upload-icon">📁</span>
             <h3>Arraste o arquivo CSV aqui</h3>
-            <p class="text-muted" style="margin-top: 6px;">ou clique nesta área para escolher do seu computador (.csv)</p>
+            <p class="text-muted" style="margin-top: 6px;">ou clique nesta área para escolher do seu computador (.csv)
+            </p>
             <input type="file" accept=".csv" class="file-input" (change)="onFileSelect($event)">
           </div>
 
@@ -340,9 +371,11 @@
             <span class="file-icon">📄</span>
             <div style="text-align: left;">
               <h4 style="color: var(--text-primary); font-size: 1.05rem;">{{ nomeArquivoUpload }}</h4>
-              <p class="text-muted" style="font-size: 0.85rem;">{{ (arquivoUpload.size / 1024).toFixed(1) }} KB • Pronto para processamento</p>
+              <p class="text-muted" style="font-size: 0.85rem;">{{ (arquivoUpload.size / 1024).toFixed(1) }} KB • Pronto
+                para processamento</p>
             </div>
-            <button class="btn btn-secondary btn-sm" (click)="cancelarUpload()" title="Remover e escolher outro arquivo">
+            <button class="btn btn-secondary btn-sm" (click)="cancelarUpload()"
+              title="Remover e escolher outro arquivo">
               ✕ Trocar Arquivo
             </button>
           </div>
@@ -353,19 +386,18 @@
           <div class="action-card-info">
             <span *ngIf="arquivoUpload" class="badge badge-sucesso">✓ Arquivo Selecionado</span>
             <span *ngIf="!arquivoUpload" class="badge badge-pendente">Aguardando Arquivo</span>
-            <span class="text-muted text-sm" *ngIf="arquivoUpload">Clique no botão para importar e atualizar o banco de dados</span>
-            <span class="text-muted text-sm" *ngIf="!arquivoUpload">Selecione uma planilha CSV acima para habilitar a carga</span>
+            <span class="text-muted text-sm" *ngIf="arquivoUpload">Clique no botão para importar e atualizar o banco de
+              dados</span>
+            <span class="text-muted text-sm" *ngIf="!arquivoUpload">Selecione uma planilha CSV acima para habilitar a
+              carga</span>
           </div>
 
           <div class="action-card-buttons">
             <button *ngIf="arquivoUpload" class="btn btn-secondary" (click)="cancelarUpload()">
               Cancelar
             </button>
-            <button 
-              class="btn btn-primary btn-upload-confirm" 
-              [disabled]="!arquivoUpload || uploading" 
-              (click)="confirmarUpload()"
-            >
+            <button class="btn btn-primary btn-upload-confirm" [disabled]="!arquivoUpload || uploading"
+              (click)="confirmarUpload()">
               <span *ngIf="uploading" class="spinner"></span>
               <span *ngIf="!uploading">🚀</span>
               {{ uploading ? 'Inserindo no banco de dados...' : 'Confirmar e Iniciar Carga no Banco' }}
@@ -396,11 +428,7 @@
 
           <div class="upload-actions">
             <button class="btn btn-secondary" (click)="cancelarUpload()">Cancelar</button>
-            <button 
-              class="btn btn-primary" 
-              [disabled]="uploading" 
-              (click)="confirmarUpload()"
-            >
+            <button class="btn btn-primary" [disabled]="uploading" (click)="confirmarUpload()">
               <span *ngIf="uploading" class="spinner"></span>
               <span *ngIf="!uploading">🚀</span>
               {{ uploading ? 'Inserindo no banco...' : 'Confirmar e Iniciar Carga no Banco' }}
@@ -460,15 +488,14 @@
             <div class="channel-label">
               <span>{{ canal.icone }} {{ canal.nome }}</span>
               <span class="text-muted">
-                {{ estatisticas()?.canais?.[canal.id]?.SUCESSO || 0 }} sucessos / 
+                {{ estatisticas()?.canais?.[canal.id]?.SUCESSO || 0 }} sucessos /
                 {{ estatisticas()?.canais?.[canal.id]?.FALHA || 0 }} falhas
               </span>
             </div>
             <div class="channel-progress-track">
-              <div 
-                class="channel-progress-fill fill-success" 
-                [style.width.%]="((estatisticas()?.canais?.[canal.id]?.SUCESSO || 0) / (estatisticas()?.total_produtos || 1)) * 100"
-              ></div>
+              <div class="channel-progress-fill fill-success"
+                [style.width.%]="((estatisticas()?.canais?.[canal.id]?.SUCESSO || 0) / (estatisticas()?.total_produtos || 1)) * 100">
+              </div>
             </div>
           </div>
         </div>
@@ -485,7 +512,8 @@
               <h3>WhatsApp (Z-API)</h3>
               <p class="text-muted">Envio automático para o grupo Dicas Shopee</p>
             </div>
-            <span class="badge" [class.badge-sucesso]="integracoes()?.whatsapp?.configurado" [class.badge-falha]="!integracoes()?.whatsapp?.configurado">
+            <span class="badge" [class.badge-sucesso]="integracoes()?.whatsapp?.configurado"
+              [class.badge-falha]="!integracoes()?.whatsapp?.configurado">
               {{ integracoes()?.whatsapp?.configurado ? 'CONECTADO' : 'PENDENTE' }}
             </span>
           </div>
@@ -499,7 +527,8 @@
               <h3>Facebook Pages API</h3>
               <p class="text-muted">Postagens automáticas com imagem e link na página do Facebook</p>
             </div>
-            <span class="badge" [class.badge-sucesso]="integracoes()?.facebook?.configurado" [class.badge-falha]="!integracoes()?.facebook?.configurado">
+            <span class="badge" [class.badge-sucesso]="integracoes()?.facebook?.configurado"
+              [class.badge-falha]="!integracoes()?.facebook?.configurado">
               {{ integracoes()?.facebook?.configurado ? 'CONECTADO' : 'PENDENTE' }}
             </span>
           </div>
@@ -513,7 +542,8 @@
               <h3>Instagram Graph API</h3>
               <p class="text-muted">Publicação em Stories, Feed de Fotos e Reels com artes personalizadas</p>
             </div>
-            <span class="badge" [class.badge-sucesso]="integracoes()?.instagram?.configurado" [class.badge-falha]="!integracoes()?.instagram?.configurado">
+            <span class="badge" [class.badge-sucesso]="integracoes()?.instagram?.configurado"
+              [class.badge-falha]="!integracoes()?.instagram?.configurado">
               {{ integracoes()?.instagram?.configurado ? 'CONECTADO' : 'PENDENTE' }}
             </span>
           </div>
@@ -527,7 +557,8 @@
               <h3>Shopee Affiliate Open API</h3>
               <p class="text-muted">Consulta de ofertas, links rastreáveis e metadados via GraphQL</p>
             </div>
-            <span class="badge" [class.badge-sucesso]="integracoes()?.shopee?.configurado" [class.badge-falha]="!integracoes()?.shopee?.configurado">
+            <span class="badge" [class.badge-sucesso]="integracoes()?.shopee?.configurado"
+              [class.badge-falha]="!integracoes()?.shopee?.configurado">
               {{ integracoes()?.shopee?.configurado ? 'CONECTADO' : 'PENDENTE' }}
             </span>
           </div>
@@ -541,13 +572,9 @@
       <div class="table-toolbar glass-panel">
         <div class="search-box">
           <span class="search-icon">🔍</span>
-          <input 
-            type="text" 
-            class="input-control" 
-            placeholder="Pesquisar ofertas na Shopee (ex: fone bluetooth, parafusadeira, natal)..." 
-            [(ngModel)]="shopeeBusca" 
-            (keyup.enter)="onShopeeBuscaSubmit()"
-          >
+          <input type="text" class="input-control"
+            placeholder="Pesquisar ofertas na Shopee (ex: fone bluetooth, parafusadeira, natal)..."
+            [(ngModel)]="shopeeBusca" (keyup.enter)="onShopeeBuscaSubmit()">
           <button *ngIf="shopeeBusca" class="btn-clear" (click)="shopeeBusca = ''; onShopeeBuscaSubmit()">✕</button>
         </div>
 
@@ -566,11 +593,8 @@
         </button>
 
         <div class="toolbar-actions" *ngIf="shopeeOfertas().length > 0">
-          <button 
-            class="btn btn-success" 
-            [disabled]="shopeeSelecionados().size === 0 || shopeeImportando()" 
-            (click)="importarOfertasSelecionadas()"
-          >
+          <button class="btn btn-success" [disabled]="shopeeSelecionados().size === 0 || shopeeImportando()"
+            (click)="importarOfertasSelecionadas()">
             <span *ngIf="shopeeImportando()" class="spinner"></span>
             <span *ngIf="!shopeeImportando()">📥</span>
             Importar Selecionadas ({{ shopeeSelecionados().size }})
@@ -581,11 +605,9 @@
       <!-- Barra de Ação Coletiva -->
       <div class="selection-bar glass-panel" *ngIf="shopeeOfertas().length > 0">
         <label class="checkbox-container">
-          <input 
-            type="checkbox" 
-            [checked]="shopeeSelecionados().size === shopeeOfertas().length && shopeeOfertas().length > 0" 
-            (change)="toggleSelecionarTodasOfertas()"
-          >
+          <input type="checkbox"
+            [checked]="shopeeSelecionados().size === shopeeOfertas().length && shopeeOfertas().length > 0"
+            (change)="toggleSelecionarTodasOfertas()">
           <span>Selecionar Todas as {{ shopeeOfertas().length }} Ofertas</span>
         </label>
         <span class="text-muted text-xs">Exibindo ofertas em tempo real direto da Shopee Affiliate Open API</span>
@@ -599,18 +621,12 @@
 
       <!-- Grid de Ofertas da Shopee -->
       <div *ngIf="!shopeeCarregando() && shopeeOfertas().length > 0" class="shopee-grid">
-        <div 
-          *ngFor="let oferta of shopeeOfertas()" 
-          class="shopee-card glass-panel" 
-          [class.selected]="shopeeSelecionados().has(oferta.item_id)"
-        >
+        <div *ngFor="let oferta of shopeeOfertas()" class="shopee-card glass-panel"
+          [class.selected]="shopeeSelecionados().has(oferta.item_id)">
           <div class="shopee-card-thumb">
             <label class="shopee-checkbox-overlay">
-              <input 
-                type="checkbox" 
-                [checked]="shopeeSelecionados().has(oferta.item_id)" 
-                (change)="toggleSelecionarOferta(oferta.item_id)"
-              >
+              <input type="checkbox" [checked]="shopeeSelecionados().has(oferta.item_id)"
+                (change)="toggleSelecionarOferta(oferta.item_id)">
             </label>
             <img [src]="oferta.image_url" [alt]="oferta.product_name" loading="lazy">
             <span class="badge-comissao">
@@ -632,15 +648,12 @@
                 <span class="price-val">R$ {{ oferta.price }}</span>
               </div>
               <div class="shopee-actions">
-                <button 
-                  class="btn btn-sm btn-primary" 
-                  [disabled]="shopeeImportando()" 
-                  (click)="importarOfertaUnica(oferta)" 
-                  title="Importar diretamente para o banco de produtos"
-                >
+                <button class="btn btn-sm btn-primary" [disabled]="shopeeImportando()"
+                  (click)="importarOfertaUnica(oferta)" title="Importar diretamente para o banco de produtos">
                   📥 Importar
                 </button>
-                <a [href]="oferta.offer_link" target="_blank" class="btn btn-sm btn-secondary" title="Abrir link de afiliado na Shopee">
+                <a [href]="oferta.offer_link" target="_blank" class="btn btn-sm btn-secondary"
+                  title="Abrir link de afiliado na Shopee">
                   🔗
                 </a>
               </div>
@@ -659,19 +672,13 @@
 
       <!-- Paginação Shopee -->
       <div class="pagination-footer glass-panel" *ngIf="!shopeeCarregando() && shopeeOfertas().length > 0">
-        <button 
-          class="btn btn-secondary btn-sm" 
-          [disabled]="shopeePagina() <= 1" 
-          (click)="carregarOfertasShopee(shopeePagina() - 1)"
-        >
+        <button class="btn btn-secondary btn-sm" [disabled]="shopeePagina() <= 1"
+          (click)="carregarOfertasShopee(shopeePagina() - 1)">
           ⬅️ Página Anterior
         </button>
         <span class="page-indicator">Página {{ shopeePagina() }}</span>
-        <button 
-          class="btn btn-secondary btn-sm" 
-          [disabled]="!shopeeHasNext()" 
-          (click)="carregarOfertasShopee(shopeePagina() + 1)"
-        >
+        <button class="btn btn-secondary btn-sm" [disabled]="!shopeeHasNext()"
+          (click)="carregarOfertasShopee(shopeePagina() + 1)">
           Próxima Página ➡️
         </button>
       </div>
@@ -685,18 +692,10 @@
           <p class="text-muted">Acompanhamento de conversões, receita bruta gerada e reconciliação financeira.</p>
         </div>
         <div class="conversoes-header-actions">
-          <button 
-            class="btn btn-secondary" 
-            [disabled]="conversoesCarregando()" 
-            (click)="carregarConversoes()"
-          >
+          <button class="btn btn-secondary" [disabled]="conversoesCarregando()" (click)="carregarConversoes()">
             🔄 Atualizar Dados
           </button>
-          <button 
-            class="btn btn-primary" 
-            [disabled]="sincronizandoConversoes()" 
-            (click)="sincronizarConversoes()"
-          >
+          <button class="btn btn-primary" [disabled]="sincronizandoConversoes()" (click)="sincronizarConversoes()">
             <span *ngIf="sincronizandoConversoes()" class="spinner"></span>
             <span *ngIf="!sincronizandoConversoes()">⚡</span>
             {{ sincronizandoConversoes() ? 'Sincronizando com Shopee...' : 'Sincronizar com Shopee' }}
@@ -709,7 +708,8 @@
         <div class="stat-card glass-panel border-accent-gold">
           <div class="stat-icon">💰</div>
           <div class="stat-details">
-            <span class="stat-value">R$ {{ conversoesData()?.resumo?.total_comissao_reais?.toFixed(2) || '0.00' }}</span>
+            <span class="stat-value">R$ {{ conversoesData()?.resumo?.total_comissao_reais?.toFixed(2) || '0.00'
+              }}</span>
             <span class="stat-label">Comissão Total Confirmada</span>
           </div>
         </div>
@@ -764,7 +764,8 @@
             <span class="text-muted text-xs">Rastreamento via subIds</span>
           </div>
 
-          <div class="channel-bars-list" *ngIf="conversoesData()?.resumo?.comissao_por_canal?.length; else semDadosCanais">
+          <div class="channel-bars-list"
+            *ngIf="conversoesData()?.resumo?.comissao_por_canal?.length; else semDadosCanais">
             <div *ngFor="let canalItem of conversoesData()?.resumo?.comissao_por_canal" class="channel-bar-item">
               <div class="channel-bar-info">
                 <span class="channel-bar-name">
@@ -773,20 +774,20 @@
                 </span>
                 <span class="channel-bar-values">
                   <strong>R$ {{ canalItem.comissao.toFixed(2) }}</strong>
-                  <span class="text-muted text-xs">({{ canalItem.qtd }} {{ canalItem.qtd === 1 ? 'item' : 'itens' }})</span>
+                  <span class="text-muted text-xs">({{ canalItem.qtd }} {{ canalItem.qtd === 1 ? 'item' : 'itens'
+                    }})</span>
                 </span>
               </div>
               <div class="channel-progress-track">
-                <div 
-                  class="channel-progress-fill" 
-                  [style.background-color]="obterInfoCanal(canalItem.channel_type).cor"
-                  [style.width.%]="(conversoesData()?.resumo?.total_comissao_reais || 0) > 0 ? (canalItem.comissao / (conversoesData()?.resumo?.total_comissao_reais || 1)) * 100 : 0"
-                ></div>
+                <div class="channel-progress-fill" [style.background-color]="obterInfoCanal(canalItem.channel_type).cor"
+                  [style.width.%]="(conversoesData()?.resumo?.total_comissao_reais || 0) > 0 ? (canalItem.comissao / (conversoesData()?.resumo?.total_comissao_reais || 1)) * 100 : 0">
+                </div>
               </div>
             </div>
           </div>
           <ng-template #semDadosCanais>
-            <p class="text-muted text-sm" style="padding: 16px 0;">Nenhum pedido com subId específico registrado ainda.</p>
+            <p class="text-muted text-sm" style="padding: 16px 0;">Nenhum pedido com subId específico registrado ainda.
+            </p>
           </ng-template>
         </div>
 
@@ -806,7 +807,8 @@
                   <p class="text-muted text-xs">Comissão liberada para saque</p>
                 </div>
               </div>
-              <span class="status-summary-count">{{ conversoesData()?.resumo?.pedidos_por_status?.['COMPLETED'] || 0 }}</span>
+              <span class="status-summary-count">{{ conversoesData()?.resumo?.pedidos_por_status?.['COMPLETED'] || 0
+                }}</span>
             </div>
 
             <div class="status-summary-item border-left-pendente">
@@ -817,7 +819,8 @@
                   <p class="text-muted text-xs">Aguardando entrega ou confirmação</p>
                 </div>
               </div>
-              <span class="status-summary-count">{{ conversoesData()?.resumo?.pedidos_por_status?.['PENDING'] || 0 }}</span>
+              <span class="status-summary-count">{{ conversoesData()?.resumo?.pedidos_por_status?.['PENDING'] || 0
+                }}</span>
             </div>
 
             <div class="status-summary-item border-left-falha">
@@ -828,7 +831,8 @@
                   <p class="text-muted text-xs">Venda cancelada pelo comprador</p>
                 </div>
               </div>
-              <span class="status-summary-count">{{ conversoesData()?.resumo?.pedidos_por_status?.['CANCELLED'] || 0 }}</span>
+              <span class="status-summary-count">{{ conversoesData()?.resumo?.pedidos_por_status?.['CANCELLED'] || 0
+                }}</span>
             </div>
           </div>
         </div>
@@ -838,20 +842,16 @@
       <div class="conversoes-toolbar glass-panel" *ngIf="conversoesData()">
         <div class="toolbar-search">
           <span class="search-icon">🔍</span>
-          <input 
-            type="text" 
-            class="input-control" 
-            placeholder="Buscar por nome do produto, ID do item ou pedido..." 
-            [ngModel]="conversoesBusca()" 
-            (ngModelChange)="conversoesBusca.set($event)"
-          >
+          <input type="text" class="input-control" placeholder="Buscar por nome do produto, ID do item ou pedido..."
+            [ngModel]="conversoesBusca()" (ngModelChange)="conversoesBusca.set($event)">
           <button *ngIf="conversoesBusca()" class="btn-clear-search" (click)="conversoesBusca.set('')">✕</button>
         </div>
 
         <div class="toolbar-selects">
           <div class="select-wrapper">
             <label>Canal:</label>
-            <select class="input-control select-control" [ngModel]="conversoesFiltroCanal()" (ngModelChange)="conversoesFiltroCanal.set($event)">
+            <select class="input-control select-control" [ngModel]="conversoesFiltroCanal()"
+              (ngModelChange)="conversoesFiltroCanal.set($event)">
               <option value="TODOS">🌐 Todos os Canais</option>
               <option value="whatsapp">💬 WhatsApp</option>
               <option value="facebook">📘 Facebook</option>
@@ -864,7 +864,8 @@
 
           <div class="select-wrapper">
             <label>Status:</label>
-            <select class="input-control select-control" [ngModel]="conversoesFiltroStatus()" (ngModelChange)="conversoesFiltroStatus.set($event)">
+            <select class="input-control select-control" [ngModel]="conversoesFiltroStatus()"
+              (ngModelChange)="conversoesFiltroStatus.set($event)">
               <option value="TODOS">Todos os Status</option>
               <option value="COMPLETED">✅ Concluídos (COMPLETED)</option>
               <option value="PENDING">⏳ Pendentes (PENDING)</option>
@@ -874,7 +875,8 @@
 
           <div class="select-wrapper">
             <label>Ordenar:</label>
-            <select class="input-control select-control" [ngModel]="conversoesOrdenacao()" (ngModelChange)="conversoesOrdenacao.set($event)">
+            <select class="input-control select-control" [ngModel]="conversoesOrdenacao()"
+              (ngModelChange)="conversoesOrdenacao.set($event)">
               <option value="recente">🕒 Mais Recentes</option>
               <option value="maior_comissao">💰 Maior Comissão</option>
               <option value="maior_valor">💵 Maior Valor de Venda</option>
@@ -883,20 +885,13 @@
         </div>
 
         <div class="toolbar-export-action">
-          <button 
-            class="btn btn-secondary" 
-            [disabled]="conversoesFiltradas().length === 0" 
-            (click)="exportarConversoesCSV()"
-            title="Exportar lista filtrada para arquivo CSV"
-          >
+          <button class="btn btn-secondary" [disabled]="conversoesFiltradas().length === 0"
+            (click)="exportarConversoesCSV()" title="Exportar lista filtrada para arquivo CSV">
             📥 Exportar CSV
           </button>
-          <button 
-            *ngIf="conversoesBusca() || conversoesFiltroCanal() !== 'TODOS' || conversoesFiltroStatus() !== 'TODOS'" 
-            class="btn btn-sm btn-outline" 
-            (click)="limparFiltrosConversoes()"
-            title="Redefinir filtros"
-          >
+          <button
+            *ngIf="conversoesBusca() || conversoesFiltroCanal() !== 'TODOS' || conversoesFiltroStatus() !== 'TODOS'"
+            class="btn btn-sm btn-outline" (click)="limparFiltrosConversoes()" title="Redefinir filtros">
             Limpar Filtros
           </button>
         </div>
@@ -944,11 +939,8 @@
                 </div>
               </td>
               <td>
-                <span 
-                  class="channel-pill" 
-                  [style.background-color]="obterInfoCanal(conv.channel_type).bg"
-                  [style.color]="obterInfoCanal(conv.channel_type).cor"
-                >
+                <span class="channel-pill" [style.background-color]="obterInfoCanal(conv.channel_type).bg"
+                  [style.color]="obterInfoCanal(conv.channel_type).cor">
                   <span class="channel-pill-icon">{{ obterInfoCanal(conv.channel_type).icone }}</span>
                   {{ obterInfoCanal(conv.channel_type).nome }}
                 </span>
@@ -958,13 +950,11 @@
                 R$ {{ conv.item_commission.toFixed(2) }}
               </td>
               <td>
-                <span 
-                  class="badge" 
-                  [class.badge-sucesso]="conv.order_status === 'COMPLETED'" 
-                  [class.badge-parcial]="conv.order_status === 'PENDING'" 
-                  [class.badge-falha]="conv.order_status === 'CANCELLED'"
-                >
-                  {{ conv.order_status === 'COMPLETED' ? 'CONCLUÍDO' : (conv.order_status === 'PENDING' ? 'PENDENTE' : conv.order_status) }}
+                <span class="badge" [class.badge-sucesso]="conv.order_status === 'COMPLETED'"
+                  [class.badge-parcial]="conv.order_status === 'PENDING'"
+                  [class.badge-falha]="conv.order_status === 'CANCELLED'">
+                  {{ conv.order_status === 'COMPLETED' ? 'CONCLUÍDO' : (conv.order_status === 'PENDING' ? 'PENDENTE' :
+                  conv.order_status) }}
                 </span>
               </td>
               <td class="text-xs text-muted">{{ conv.purchase_time }}</td>
@@ -982,7 +972,8 @@
           </div>
           <ng-template #semNenhumRegistro>
             <h3>Nenhuma conversão registrada ainda</h3>
-            <p class="text-muted">Clique em "Sincronizar com Shopee" no topo para consultar pedidos comissionados via API GraphQL.</p>
+            <p class="text-muted">Clique em "Sincronizar com Shopee" no topo para consultar pedidos comissionados via
+              API GraphQL.</p>
             <button class="btn btn-primary" (click)="sincronizarConversoes()">⚡ Sincronizar com Shopee</button>
           </ng-template>
         </div>
@@ -1002,14 +993,40 @@
       </div>
 
       <div class="modal-body">
-        <div class="modal-section">
+        <div class="modal-section modal-product-header-section" *ngIf="produtoSelecionado()?.produto?.image_url">
+          <img [src]="produtoSelecionado()?.produto?.image_url" [alt]="produtoSelecionado()?.produto?.item_name"
+            class="modal-product-img" width="72" height="72" loading="lazy" (error)="onImageError($event)">
+          <div class="modal-product-header-info">
+            <p><strong>Preço:</strong> <span class="price-cell">R$ {{ produtoSelecionado()?.produto?.price || '--'
+                }}</span></p>
+            <p *ngIf="produtoSelecionado()?.produto?.lista"><strong>Lista:</strong> <span class="badge-lista">🏷️ {{
+                produtoSelecionado()?.produto?.lista }}</span></p>
+            <p><strong>Link de Afiliado:</strong> <a [href]="produtoSelecionado()?.produto?.offer_link" target="_blank"
+                class="link-affiliate">🔗 Abrir Link Rastreado</a></p>
+            <p *ngIf="produtoSelecionado()?.produto?.product_link">
+              <strong>Página do Produto:</strong> <a [href]="produtoSelecionado()?.produto?.product_link"
+                target="_blank" class="link-affiliate">Acessar na Shopee</a>
+            </p>
+            <p><strong>Status Geral:</strong> <span class="badge"
+                [ngClass]="getStatusClass(produtoSelecionado()?.produto?.status_geral)">{{
+                produtoSelecionado()?.produto?.status_geral }}</span></p>
+          </div>
+        </div>
+
+        <div class="modal-section" *ngIf="!produtoSelecionado()?.produto?.image_url">
           <h3>Links e Metadados</h3>
           <p><strong>Preço:</strong> R$ {{ produtoSelecionado()?.produto?.price || '--' }}</p>
-          <p><strong>Link de Afiliado:</strong> <a [href]="produtoSelecionado()?.produto?.offer_link" target="_blank">{{ produtoSelecionado()?.produto?.offer_link }}</a></p>
+          <p *ngIf="produtoSelecionado()?.produto?.lista"><strong>Lista:</strong> <span class="badge-lista">🏷️ {{
+              produtoSelecionado()?.produto?.lista }}</span></p>
+          <p><strong>Link de Afiliado:</strong> <a [href]="produtoSelecionado()?.produto?.offer_link" target="_blank">{{
+              produtoSelecionado()?.produto?.offer_link }}</a></p>
           <p *ngIf="produtoSelecionado()?.produto?.product_link">
-            <strong>Página do Produto:</strong> <a [href]="produtoSelecionado()?.produto?.product_link" target="_blank">Acessar na Shopee</a>
+            <strong>Página do Produto:</strong> <a [href]="produtoSelecionado()?.produto?.product_link"
+              target="_blank">Acessar na Shopee</a>
           </p>
-          <p><strong>Status Geral:</strong> <span class="badge" [ngClass]="getStatusClass(produtoSelecionado()?.produto?.status_geral)">{{ produtoSelecionado()?.produto?.status_geral }}</span></p>
+          <p><strong>Status Geral:</strong> <span class="badge"
+              [ngClass]="getStatusClass(produtoSelecionado()?.produto?.status_geral)">{{
+              produtoSelecionado()?.produto?.status_geral }}</span></p>
         </div>
 
         <div class="modal-section">
@@ -1017,7 +1034,8 @@
           <div class="logs-container">
             <div *ngFor="let log of produtoSelecionado()?.logs" class="log-item">
               <div class="log-top">
-                <span class="badge" [class.badge-sucesso]="log.status === 'SUCESSO'" [class.badge-falha]="log.status !== 'SUCESSO'">
+                <span class="badge" [class.badge-sucesso]="log.status === 'SUCESSO'"
+                  [class.badge-falha]="log.status !== 'SUCESSO'">
                   {{ log.canal }} : {{ log.status }}
                 </span>
                 <span class="text-muted text-xs">{{ log.data_envio }}</span>
@@ -1034,6 +1052,95 @@
         <button class="btn btn-secondary" (click)="fecharModal()">Fechar</button>
         <button class="btn btn-primary" (click)="reenviarProduto(produtoSelecionado()!.produto.item_id)">
           🔄 Reenviar Pendências Deste Produto
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de Seleção/Criação de Lista para Importação Shopee -->
+  <div *ngIf="modalImportarListaAberto()" class="modal-backdrop" (click)="fecharModalImportarLista()">
+    <div class="modal-content glass-panel modal-md" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <div>
+          <h2>📥 Importar Ofertas Shopee</h2>
+          <span class="text-muted text-xs">Organize as {{ shopeeSelecionados().size }} ofertas selecionadas em listas
+            temáticas</span>
+        </div>
+        <button class="btn-close" [disabled]="salvandoImportacaoComLista()"
+          (click)="fecharModalImportarLista()">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="modal-section">
+          <label class="modal-label">Como deseja salvar estas ofertas?</label>
+
+          <div class="radio-cards-group">
+            <!-- Opção 1: Salvar em lista existente -->
+            <label class="radio-card glass-panel" [class.active]="modoLista === 'existente'">
+              <input type="radio" name="modoLista" value="existente" [(ngModel)]="modoLista"
+                [disabled]="listas().length === 0">
+              <div class="radio-card-body">
+                <div class="radio-card-title">
+                  <span>📁</span>
+                  <strong>Salvar em lista existente</strong>
+                </div>
+                <p class="text-muted text-xs">Vincular a uma lista temática já cadastrada no Hub.</p>
+
+                <div *ngIf="modoLista === 'existente'" class="radio-card-input">
+                  <select class="input-control select-control" [(ngModel)]="listaSelecionada"
+                    [disabled]="listas().length === 0">
+                    <option *ngIf="listas().length === 0" value="">Nenhuma lista cadastrada</option>
+                    <option *ngFor="let l of listas()" [value]="l.nome">
+                      {{ l.nome }} ({{ l.total_produtos || 0 }} produtos)
+                    </option>
+                  </select>
+                </div>
+              </div>
+            </label>
+
+            <!-- Opção 2: Criar nova lista -->
+            <label class="radio-card glass-panel" [class.active]="modoLista === 'nova'">
+              <input type="radio" name="modoLista" value="nova" [(ngModel)]="modoLista">
+              <div class="radio-card-body">
+                <div class="radio-card-title">
+                  <span>✨</span>
+                  <strong>Criar uma nova lista</strong>
+                </div>
+                <p class="text-muted text-xs">Cria uma nova categoria para agrupar estas e futuras ofertas.</p>
+
+                <div *ngIf="modoLista === 'nova'" class="radio-card-input">
+                  <input type="text" class="input-control" placeholder="Ex: Achadinhos de Cozinha, Eletrônicos Gamer..."
+                    [(ngModel)]="novaListaNome" (keyup.enter)="confirmarImportacaoComLista()" autofocus>
+                </div>
+              </div>
+            </label>
+
+            <!-- Opção 3: Importar sem lista -->
+            <label class="radio-card glass-panel" [class.active]="modoLista === 'nenhuma'">
+              <input type="radio" name="modoLista" value="nenhuma" [(ngModel)]="modoLista">
+              <div class="radio-card-body">
+                <div class="radio-card-title">
+                  <span>📦</span>
+                  <strong>Importar sem lista (Geral)</strong>
+                </div>
+                <p class="text-muted text-xs">Salva no catálogo geral sem classificação temática.</p>
+              </div>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" [disabled]="salvandoImportacaoComLista()"
+          (click)="fecharModalImportarLista()">
+          Cancelar
+        </button>
+        <button class="btn btn-success"
+          [disabled]="salvandoImportacaoComLista() || (modoLista === 'nova' && !novaListaNome.trim()) || (modoLista === 'existente' && !listaSelecionada)"
+          (click)="confirmarImportacaoComLista()">
+          <span *ngIf="salvandoImportacaoComLista()" class="spinner"></span>
+          <span *ngIf="!salvandoImportacaoComLista()">📥</span>
+          Confirmar e Importar ({{ shopeeSelecionados().size }})
         </button>
       </div>
     </div>

@@ -19,13 +19,18 @@ from shopee.client import load_env
 from facebook.client import FacebookPageClient
 from instagran.client import InstagramClient
 from whatsapp.client import ZApiClient
-from produtos.reader import fetch_product_images
+try:
+    from produtos.reader import fetch_product_images
+except ImportError:
+    def fetch_product_images(*args, **kwargs) -> list[str]:
+        return []
 from instagran.tratarParaInstagran import gerar_todas_imagens
 from db.controle import (
     inicializar_banco,
     obter_produtos_para_reprocessamento,
     obter_produto,
     obter_status_canais,
+    marcar_canal_enviando,
     registrar_resultado_canal,
     atualizar_codigo_artes,
     gerar_relatorio_terminal,
@@ -35,61 +40,26 @@ from db.controle import (
 
 
 def format_caption(item_name: str, offer_link: str, price: str | None = None) -> str:
-    """Gera legenda padrão para publicações nas redes sociais."""
-    preco_txt = f"\n💰 Por apenas R$ {price}" if price else ""
+    """Gera legenda padrão para publicações nas redes sociais adaptada à loja de origem."""
+    preco_txt = f"\n💰 Por apenas R$ {price}" if price and str(price) not in ("0", "0.0", "--") else ""
+    link_lower = (offer_link or "").lower()
+    if "meli.la" in link_lower or "mercadolivre" in link_lower:
+        loja_txt = "no link oficial do Mercado Livre"
+    elif "shopee" in link_lower or "shp.ee" in link_lower:
+        loja_txt = "no link oficial da Shopee"
+    else:
+        loja_txt = "no link oficial"
     return (
         f"🔥 *{item_name}*{preco_txt}\n\n"
-        f"Garanta o seu com desconto no link oficial da Shopee:\n"
+        f"Garanta o seu com desconto {loja_txt}:\n"
         f"👉 {offer_link}"
     )
 
 
 def localizar_artes_produto(item_id: str, pasta_artes_registrada: str | None = None) -> dict[str, Path]:
-    """Localiza as artes já geradas no disco para evitar renderizações desnecessárias."""
-    artes = {}
-    pastas_candidatas = []
-
-    if pasta_artes_registrada:
-        pastas_candidatas.append(Path(pasta_artes_registrada))
-
-    # Busca em db/img/*/<item_id>/
-    base_db_img = ROOT / "db" / "img"
-    if base_db_img.exists():
-        for d in sorted(base_db_img.glob(f"*/{item_id}"), reverse=True):
-            if d.is_dir() and d not in pastas_candidatas:
-                pastas_candidatas.append(d)
-
-    # Fallback legado: instagran/img/
-    legado_dir = ROOT / "instagran" / "img"
-    if legado_dir.exists():
-        pastas_candidatas.append(legado_dir)
-
-    for pasta in pastas_candidatas:
-        if not pasta.exists():
-            continue
-
-        stories = pasta / f"{item_id}_stories.png"
-        post = pasta / f"{item_id}_post.png"
-        reeals = pasta / f"{item_id}_reeals.png"
-        reels_alias = pasta / f"{item_id}_reels.png"
-
-        if stories.exists():
-            artes["stories"] = stories
-        if post.exists():
-            artes["post"] = post
-        if reeals.exists():
-            artes["reeals"] = reeals
-            artes["reels"] = reeals
-        elif reels_alias.exists():
-            artes["reeals"] = reels_alias
-            artes["reels"] = reels_alias
-
-        if "stories" in artes and "post" in artes and "reeals" in artes:
-            artes["pasta"] = pasta
-            artes["codigo"] = item_id
-            return artes
-
-    return artes
+    """Localiza as artes já geradas no disco validando se são mais recentes que instagran/templates/."""
+    from db.controle import localizar_artes_produto as _localizar_artes_db
+    return _localizar_artes_db(item_id, pasta_artes_registrada)
 
 
 def reenviar_produto_pendente(
@@ -98,21 +68,34 @@ def reenviar_produto_pendente(
     ig_client: InstagramClient | None,
     wa_client: ZApiClient | None,
     dry_run: bool = False,
+    on_etapa=None,
 ) -> dict:
     """Tenta reenviar cirurgicamente os canais que falharam ou estão pendentes para um produto."""
     item_id = str(produto["item_id"])
-    item_name = produto.get("item_name", "Produto Shopee")
+    item_name = produto.get("item_name", "Produto")
     offer_link = produto.get("offer_link", "")
     product_link = produto.get("product_link", "")
     price = produto.get("price")
     pasta_artes = produto.get("pasta_artes")
+
+    def _notificar_etapa(canal: str, descricao: str, marcar_db: bool = True) -> None:
+        if marcar_db and not dry_run and canal in CANAIS_OBRIGATORIOS:
+            try:
+                marcar_canal_enviando(item_id, canal)
+            except Exception:
+                pass
+        if callable(on_etapa):
+            try:
+                on_etapa(item_id, canal, descricao)
+            except Exception:
+                pass
 
     status_canais = obter_status_canais(item_id)
     pendentes = [c for c in CANAIS_OBRIGATORIOS if status_canais.get(c) != "SUCESSO"]
 
     if not pendentes:
         print(f"\n✅ [JÁ CONCLUÍDO] {item_name} (ID: {item_id})")
-        print("   Todos os 5 canais já constam com SUCESSO no banco.")
+        print("   Todos os 6 canais já constam com SUCESSO no banco.")
         return {"item_id": item_id, "status": "CONCLUIDO"}
 
     print(f"\n==========================================")
@@ -130,23 +113,27 @@ def reenviar_produto_pendente(
             except Exception:
                 pass
 
-    # Geração de links rastreados por canal via Shopee Affiliate API
-    shopee_client = None
-    try:
-        from shopee.client import ShopeeAffiliateClient
-        shopee_client = ShopeeAffiliateClient()
-    except Exception:
-        pass
-
+    # Geração de links rastreados por canal via Shopee Affiliate API (apenas para links da Shopee)
     origin_link = product_link or offer_link
+    eh_link_shopee = "shopee" in (origin_link or "").lower() or "shp.ee" in (origin_link or "").lower()
+    shopee_client = None
+    if eh_link_shopee:
+        try:
+            from shopee.client import ShopeeAffiliateClient
+            shopee_client = ShopeeAffiliateClient()
+        except Exception:
+            pass
+
     link_wa = (shopee_client.gerar_link_canal(origin_link, "whatsapp") if shopee_client else None) or offer_link
     link_fb = (shopee_client.gerar_link_canal(origin_link, "facebook") if shopee_client else None) or offer_link
+    link_fb_reels = (shopee_client.gerar_link_canal(origin_link, "facebook_reels") if shopee_client else None) or offer_link
     link_stories = (shopee_client.gerar_link_canal(origin_link, "instagram_stories") if shopee_client else None) or offer_link
     link_post = (shopee_client.gerar_link_canal(origin_link, "instagram_post") if shopee_client else None) or offer_link
     link_reels = (shopee_client.gerar_link_canal(origin_link, "instagram_reels") if shopee_client else None) or offer_link
 
     caption_wa = format_caption(item_name, link_wa, price)
     caption_fb = format_caption(item_name, link_fb, price)
+    caption_fb_reels = format_caption(item_name, link_fb_reels, price)
     caption_post = format_caption(item_name, link_post, price)
     caption_reels = format_caption(item_name, link_reels, price)
     caption = caption_wa
@@ -159,9 +146,10 @@ def reenviar_produto_pendente(
             print(f"   🔍 [DRY-RUN] Seria reenviado: {canal}")
         return resultado
 
-    # 1. WhatsApp - Envia exclusivamente a imagem original do produto
+    # 1. WhatsApp - Regra de negócio: envia exclusivamente a imagem original do link do produto, sem aplicar template
     if "whatsapp" in pendentes and wa_client:
-        print("💬 [1/5] Tentando reenviar WhatsApp com foto original...")
+        _notificar_etapa("whatsapp", "Enviando para o grupo do WhatsApp (1/6)...")
+        print("💬 [1/6] Tentando reenviar WhatsApp com imagem original do link (sem template)...")
         caminho_wa = primary_image if primary_image else None
         try:
             res_wa = wa_client.send_to_group(caption_wa, image_url=caminho_wa)
@@ -174,11 +162,12 @@ def reenviar_produto_pendente(
             registrar_resultado_canal(item_id, "whatsapp", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_wa, link_rastreado=link_wa)
             print(f"   ❌ WhatsApp: Falha ({e})")
     elif "whatsapp" not in pendentes:
-        print("💬 [1/5] WhatsApp: Já concluído. Pulando.")
+        print("💬 [1/6] WhatsApp: Já concluído. Pulando.")
 
-    # 2. Facebook - Envia exclusivamente a imagem original do produto
+    # 2. Facebook (Post no Feed) - Regra de negócio: envia exclusivamente a imagem do link do produto, sem aplicar template
     if "facebook" in pendentes and fb_client:
-        print("📘 [2/5] Tentando reenviar Facebook com foto original...")
+        _notificar_etapa("facebook", "Publicando foto no Feed do Facebook (2/6)...")
+        print("📘 [2/6] Tentando reenviar Facebook com imagem original do link (sem template)...")
         caminho_fb = primary_image if primary_image else None
         try:
             if caminho_fb:
@@ -194,20 +183,30 @@ def reenviar_produto_pendente(
             registrar_resultado_canal(item_id, "facebook", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_fb, link_rastreado=link_fb)
             print(f"   ❌ Facebook: Falha ({e})")
     elif "facebook" not in pendentes:
-        print("📘 [2/5] Facebook: Já concluído. Pulando.")
+        print("📘 [2/6] Facebook: Já concluído. Pulando.")
 
-    # 3. Instagram - Processamento exclusivo de templates apenas se houver canal de Instagram pendente
-    precisa_instagram = any(c in pendentes for c in ["instagram_stories", "instagram_post", "instagram_reels"])
+    # Processamento de artes de templates (instagran/templates) para os canais que usam template
+    precisa_templates = any(
+        c in pendentes
+        for c in ["facebook_reels", "instagram_stories", "instagram_post", "instagram_reels"]
+    )
     artes = {}
-    if precisa_instagram:
-        print("📸 [3/5] Processando artes exclusivas para Instagram...")
+    if precisa_templates:
+        _notificar_etapa("templates", "Renderizando templates Linkolândia (Stories, Post e Reels)...", marcar_db=False)
+        print("📸 Processando artes de templates (instagran/templates) para redes sociais...")
         artes = localizar_artes_produto(item_id, pasta_artes)
         pasta_existente = artes.get("pasta")
         tem_foto_original = pasta_existente and (pasta_existente / "original.jpg").exists()
-        artes_incompletas = not artes.get("stories") or not artes.get("post") or not artes.get("reeals") or (not tem_foto_original and primary_image)
+        artes_incompletas = (
+            not artes.get("stories")
+            or not artes.get("post")
+            or not artes.get("reeals")
+            or not artes.get("reels_mp4")
+            or (not tem_foto_original and primary_image)
+        )
         if artes_incompletas:
             if primary_image:
-                print("🎨 Gerando novas artes para Instagram com template e foto oficial do produto...")
+                print("🎨 Gerando novas artes com templates Linkolândia (instagran/templates)...")
                 try:
                     clean_price = price.replace("R$", "").strip() if price else "OFERTA"
                     artes = gerar_todas_imagens({
@@ -222,15 +221,48 @@ def reenviar_produto_pendente(
                 except Exception as e:
                     print(f"   ⚠️ Não foi possível gerar as artes: {e}")
             else:
-                print("   ⚠️ Sem imagem base para gerar artes do Instagram.")
+                print("   ⚠️ Sem imagem base para gerar artes das templates.")
 
     story_png = artes.get("stories")
     post_png = artes.get("post")
     reels_png = artes.get("reeals") or artes.get("reels")
 
-    # 3. Instagram Stories
+    # 3. Facebook Reels
+    if "facebook_reels" in pendentes and fb_client:
+        _notificar_etapa("facebook_reels", "Publicando vídeo no Facebook Reels (3/6)...")
+        print("🎬 [3/6] Tentando reenviar Facebook Reels...")
+        target_reels_img = reels_png if (reels_png and reels_png.exists()) else story_png
+        video_reels_mp4 = target_reels_img.with_suffix(".mp4") if target_reels_img else None
+        caminho_fb_reels = str(video_reels_mp4) if (video_reels_mp4 and video_reels_mp4.exists()) else (str(target_reels_img) if target_reels_img else None)
+        try:
+            if video_reels_mp4 and video_reels_mp4.exists():
+                res_fb_reels = fb_client.publish_reel(video_reels_mp4, caption_fb_reels)
+                reel_id = res_fb_reels.get("video_id")
+                resultado["canais"]["facebook_reels"] = "SUCESSO"
+                registrar_resultado_canal(item_id, "facebook_reels", "SUCESSO", id_externo=reel_id, caminho_imagem=str(video_reels_mp4), link_rastreado=link_fb_reels)
+                print(f"   ✅ Facebook Reels: Sucesso (ID: {reel_id})")
+            elif target_reels_img and target_reels_img.exists():
+                res_fb_reels = fb_client.publish_reel_from_image(target_reels_img, caption_fb_reels)
+                reel_id = res_fb_reels.get("video_id")
+                resultado["canais"]["facebook_reels"] = "SUCESSO"
+                caminho_salvo = str(target_reels_img.with_suffix(".mp4")) if target_reels_img.with_suffix(".mp4").exists() else str(target_reels_img)
+                registrar_resultado_canal(item_id, "facebook_reels", "SUCESSO", id_externo=reel_id, caminho_imagem=caminho_salvo, link_rastreado=link_fb_reels)
+                print(f"   ✅ Facebook Reels: Sucesso gerado via imagem (ID: {reel_id})")
+            else:
+                resultado["canais"]["facebook_reels"] = "FALHA"
+                registrar_resultado_canal(item_id, "facebook_reels", "FALHA", mensagem_erro="Mídia compatível ausente para Facebook Reels", caminho_imagem=caminho_fb_reels, link_rastreado=link_fb_reels)
+                print("   ⚠️ Facebook Reels: Não foi possível enviar (sem mídia compatível).")
+        except Exception as e:
+            resultado["canais"]["facebook_reels"] = "FALHA"
+            registrar_resultado_canal(item_id, "facebook_reels", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_fb_reels, link_rastreado=link_fb_reels)
+            print(f"   ❌ Facebook Reels: Falha ({e})")
+    elif "facebook_reels" not in pendentes:
+        print("🎬 [3/6] Facebook Reels: Já concluído. Pulando.")
+
+    # 4. Instagram Stories
     if "instagram_stories" in pendentes and ig_client and fb_client:
-        print("📲 [3/5] Tentando reenviar Stories...")
+        _notificar_etapa("instagram_stories", "Publicando arte nos Stories do Instagram (4/6)...")
+        print("📲 [4/6] Tentando reenviar Stories...")
         caminho_story = str(story_png) if (story_png and story_png.exists()) else (primary_image if primary_image else None)
         try:
             if story_png and story_png.exists():
@@ -255,11 +287,12 @@ def reenviar_produto_pendente(
             registrar_resultado_canal(item_id, "instagram_stories", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_story, link_rastreado=link_stories)
             print(f"   ❌ Stories: Falha ({e})")
     elif "instagram_stories" not in pendentes:
-        print("📲 [3/5] Stories: Já concluído. Pulando.")
+        print("📲 [4/6] Stories: Já concluído. Pulando.")
 
-    # 4. Instagram Post no Feed
+    # 5. Instagram Post no Feed
     if "instagram_post" in pendentes and ig_client and fb_client:
-        print("🖼️  [4/5] Tentando reenviar Post no Feed...")
+        _notificar_etapa("instagram_post", "Publicando arte no Feed do Instagram (5/6)...")
+        print("🖼️  [5/6] Tentando reenviar Post no Feed...")
         caminho_post = str(post_png) if (post_png and post_png.exists()) else (primary_image if primary_image else None)
         try:
             if post_png and post_png.exists():
@@ -284,11 +317,12 @@ def reenviar_produto_pendente(
             registrar_resultado_canal(item_id, "instagram_post", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_post, link_rastreado=link_post)
             print(f"   ❌ Post Feed: Falha ({e})")
     elif "instagram_post" not in pendentes:
-        print("🖼️  [4/5] Post Feed: Já concluído. Pulando.")
+        print("🖼️  [5/6] Post Feed: Já concluído. Pulando.")
 
-    # 5. Instagram Reels
+    # 6. Instagram Reels
     if "instagram_reels" in pendentes and ig_client:
-        print("🎬 [5/5] Tentando reenviar Reels...")
+        _notificar_etapa("instagram_reels", "Publicando vídeo no Instagram Reels (6/6)...")
+        print("🎬 [6/6] Tentando reenviar Reels...")
         target_reels_img = reels_png if (reels_png and reels_png.exists()) else story_png
         video_reels_mp4 = target_reels_img.with_suffix(".mp4") if target_reels_img else None
         caminho_reels = str(video_reels_mp4) if (video_reels_mp4 and video_reels_mp4.exists()) else (str(target_reels_img) if target_reels_img else None)
@@ -310,7 +344,7 @@ def reenviar_produto_pendente(
             registrar_resultado_canal(item_id, "instagram_reels", "FALHA", mensagem_erro=str(e), caminho_imagem=caminho_reels, link_rastreado=link_reels)
             print(f"   ❌ Reels: Falha ({e})")
     elif "instagram_reels" not in pendentes:
-        print("🎬 [5/5] Reels: Já concluído. Pulando.")
+        print("🎬 [6/6] Reels: Já concluído. Pulando.")
 
     return resultado
 

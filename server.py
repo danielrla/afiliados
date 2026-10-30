@@ -33,6 +33,9 @@ from db.controle import (
     salvar_conversoes_shopee,
     obter_resumo_conversoes,
     listar_conversoes,
+    garantir_lista,
+    listar_todas_listas,
+    excluir_lista,
     CANAIS_OBRIGATORIOS,
 )
 from reenviar_falhas import reenviar_produto_pendente
@@ -66,6 +69,48 @@ class ReenvioRequest(BaseModel):
     dry_run: bool = False
 
 
+class CriarListaRequest(BaseModel):
+    nome: str
+
+
+class AdicionarLinkRequest(BaseModel):
+    url: str
+    lista: Optional[str] = None
+    item_name: Optional[str] = None
+    price: Optional[str] = None
+
+
+ENVIO_ATUAL_STATUS = {
+    "ativo": False,
+    "item_id_atual": None,
+    "item_name_atual": None,
+    "canal_atual": None,
+    "descricao_etapa": None,
+    "processados": 0,
+    "total": 0,
+}
+
+
+def _atualizar_envio_status(
+    ativo: bool,
+    item_id: Optional[str] = None,
+    item_name: Optional[str] = None,
+    canal: Optional[str] = None,
+    descricao: Optional[str] = None,
+    processados: Optional[int] = None,
+    total: Optional[int] = None,
+) -> None:
+    ENVIO_ATUAL_STATUS["ativo"] = ativo
+    ENVIO_ATUAL_STATUS["item_id_atual"] = item_id
+    ENVIO_ATUAL_STATUS["item_name_atual"] = item_name
+    ENVIO_ATUAL_STATUS["canal_atual"] = canal
+    ENVIO_ATUAL_STATUS["descricao_etapa"] = descricao
+    if processados is not None:
+        ENVIO_ATUAL_STATUS["processados"] = processados
+    if total is not None:
+        ENVIO_ATUAL_STATUS["total"] = total
+
+
 @app.get("/api/health")
 def health_check():
     """Verifica a saúde operacional básica do backend."""
@@ -78,22 +123,86 @@ def get_estatisticas():
     return obter_resumo_estatisticas()
 
 
+@app.get("/api/listas")
+def get_listas():
+    """Retorna todas as listas temáticas cadastradas e a quantidade de produtos associados."""
+    return listar_todas_listas()
+
+
+@app.post("/api/listas")
+def post_criar_lista(payload: CriarListaRequest):
+    """Cria ou garante a existência de uma lista temática."""
+    nome = str(payload.nome or "").strip()
+    if not nome:
+        raise HTTPException(status_code=400, detail="O nome da lista não pode ser vazio.")
+    nome_criado = garantir_lista(nome)
+    return {"sucesso": True, "nome": nome_criado}
+
+
+@app.delete("/api/listas/{nome}")
+def delete_lista(nome: str, desvincular: bool = Query(True)):
+    """Remove uma lista temática cadastrada."""
+    sucesso = excluir_lista(nome, desvincular_produtos=desvincular)
+    return {"sucesso": sucesso}
+
+
 @app.get("/api/produtos")
 def get_produtos(
     pagina: int = Query(1, ge=1, description="Número da página"),
     limite: int = Query(20, ge=1, le=100, description="Itens por página"),
     status: Optional[str] = Query(None, description="Filtro por status geral"),
     busca: Optional[str] = Query(None, description="Busca por ID ou nome"),
+    lista: Optional[str] = Query(None, description="Filtro por lista temática"),
 ):
     """Retorna lista paginada de produtos com seus respectivos status por canal."""
     status_str = status if isinstance(status, str) else None
     busca_str = busca if isinstance(busca, str) else None
+    lista_str = lista if isinstance(lista, str) else None
     return listar_produtos_paginado(
         pagina=pagina if isinstance(pagina, int) else 1,
         limite=limite if isinstance(limite, int) else 20,
         status_filtro=status_str,
         busca=busca_str,
+        lista_filtro=lista_str,
     )
+
+
+@app.get("/api/produtos/envio-status")
+def get_envio_status():
+    """Retorna o estado em tempo real do envio/reenvio em andamento para auto-refresh do painel."""
+    return ENVIO_ATUAL_STATUS
+
+
+@app.post("/api/produtos/adicionar-link")
+def post_adicionar_produto_por_link(payload: AdicionarLinkRequest):
+    """Extrai metadados de um link de afiliado/produto (ex: https://meli.la/2e9SRc8) e cadastra no banco."""
+    url_str = str(payload.url or "").strip()
+    if not url_str or not (url_str.startswith("http://") or url_str.startswith("https://")):
+        raise HTTPException(status_code=400, detail="Informe uma URL válida iniciando com http:// ou https://")
+
+    try:
+        from produtos.reader import extrair_produto_de_link
+        dados = extrair_produto_de_link(url_str)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Não foi possível extrair os dados do link: {e}")
+
+    if payload.item_name and payload.item_name.strip():
+        dados["item_name"] = payload.item_name.strip()
+    if payload.price and payload.price.strip():
+        dados["price"] = payload.price.strip().replace("R$", "").strip()
+
+    lista_nome = str(payload.lista).strip() if payload.lista and payload.lista.strip() else None
+    if lista_nome and lista_nome not in ("TODAS", "SEM_LISTA"):
+        garantir_lista(lista_nome)
+        dados["lista"] = lista_nome
+
+    registrar_produto(dados, ignorar_se_existir=False)
+    prod_salvo = obter_produto(dados["item_id"])
+    return {
+        "sucesso": True,
+        "mensagem": f"Produto '{dados.get('item_name')}' incluído com sucesso!",
+        "produto": prod_salvo or dados,
+    }
 
 
 @app.get("/api/produtos/{item_id}")
@@ -159,13 +268,36 @@ def _executar_reenvio_background(item_id: str, dry_run: bool = False):
         if not produto:
             return
 
+        _atualizar_envio_status(
+            True,
+            item_id=item_id,
+            item_name=produto.get("item_name"),
+            canal="iniciando",
+            descricao="Preparando publicação nos canais...",
+            processados=0,
+            total=1,
+        )
+
         fb = FacebookPageClient() if not dry_run else None
         ig = InstagramClient() if not dry_run else None
         wa = ZApiClient() if not dry_run else None
 
-        reenviar_produto_pendente(produto, fb, ig, wa, dry_run=dry_run)
+        def _on_etapa(iid: str, canal: str, desc: str) -> None:
+            _atualizar_envio_status(
+                True,
+                item_id=iid,
+                item_name=produto.get("item_name"),
+                canal=canal,
+                descricao=desc,
+                processados=0,
+                total=1,
+            )
+
+        reenviar_produto_pendente(produto, fb, ig, wa, dry_run=dry_run, on_etapa=_on_etapa)
     except Exception as e:
         print(f"Erro em background ao reenviar item {item_id}: {e}")
+    finally:
+        _atualizar_envio_status(False, processados=1, total=1)
 
 
 @app.post("/api/produtos/{item_id}/reenviar")
@@ -179,10 +311,19 @@ def reenviar_produto_rota(
     if not produto:
         raise HTTPException(status_code=404, detail="Produto não encontrado")
 
+    _atualizar_envio_status(
+        True,
+        item_id=item_id,
+        item_name=produto.get("item_name"),
+        canal="fila",
+        descricao="Iniciando envio do produto...",
+        processados=0,
+        total=1,
+    )
     background_tasks.add_task(_executar_reenvio_background, item_id, payload.dry_run)
     return {
         "sucesso": True,
-        "mensagem": f"Reenvio do produto {item_id} iniciado em segundo plano.",
+        "mensagem": f"Envio do produto {item_id} iniciado em segundo plano.",
         "item_id": item_id,
     }
 
@@ -192,17 +333,32 @@ def _executar_reenvio_lote_background(dry_run: bool = False):
     from db.controle import obter_produtos_para_reprocessamento
     produtos = obter_produtos_para_reprocessamento()
     if not produtos:
+        _atualizar_envio_status(False, processados=0, total=0)
         return
 
+    total = len(produtos)
     try:
         fb = FacebookPageClient() if not dry_run else None
         ig = InstagramClient() if not dry_run else None
         wa = ZApiClient() if not dry_run else None
 
-        for prod in produtos:
-            reenviar_produto_pendente(prod, fb, ig, wa, dry_run=dry_run)
+        for idx, prod in enumerate(produtos):
+            nome_prod = prod.get("item_name", prod.get("item_id"))
+            def _on_etapa(iid: str, canal: str, desc: str, i=idx, np=nome_prod) -> None:
+                _atualizar_envio_status(
+                    True,
+                    item_id=iid,
+                    item_name=np,
+                    canal=canal,
+                    descricao=desc,
+                    processados=i,
+                    total=total,
+                )
+            reenviar_produto_pendente(prod, fb, ig, wa, dry_run=dry_run, on_etapa=_on_etapa)
     except Exception as e:
         print(f"Erro em lote ao reenviar pendências: {e}")
+    finally:
+        _atualizar_envio_status(False, processados=total, total=total)
 
 
 @app.post("/api/produtos/reenviar-falhas")
@@ -211,6 +367,7 @@ def reenviar_todos_falhas(
     background_tasks: BackgroundTasks,
 ):
     """Dispara o reenvio de todas as publicações pendentes do banco."""
+    _atualizar_envio_status(True, canal="fila", descricao="Iniciando reenvio em lote...", processados=0, total=1)
     background_tasks.add_task(_executar_reenvio_lote_background, payload.dry_run)
     return {
         "sucesso": True,
@@ -225,17 +382,31 @@ class EnviarSelecionadosRequest(BaseModel):
 
 def _executar_reenvio_selecionados_background(item_ids: list[str], dry_run: bool = False):
     """Executa o reenvio dos produtos selecionados."""
+    total = len(item_ids)
     try:
         fb = FacebookPageClient() if not dry_run else None
         ig = InstagramClient() if not dry_run else None
         wa = ZApiClient() if not dry_run else None
 
-        for item_id in item_ids:
+        for idx, item_id in enumerate(item_ids):
             prod = obter_produto(item_id)
             if prod:
-                reenviar_produto_pendente(prod, fb, ig, wa, dry_run=dry_run)
+                nome_prod = prod.get("item_name", item_id)
+                def _on_etapa(iid: str, canal: str, desc: str, i=idx, np=nome_prod) -> None:
+                    _atualizar_envio_status(
+                        True,
+                        item_id=iid,
+                        item_name=np,
+                        canal=canal,
+                        descricao=desc,
+                        processados=i,
+                        total=total,
+                    )
+                reenviar_produto_pendente(prod, fb, ig, wa, dry_run=dry_run, on_etapa=_on_etapa)
     except Exception as e:
         print(f"Erro ao processar envio dos selecionados: {e}")
+    finally:
+        _atualizar_envio_status(False, processados=total, total=total)
 
 
 @app.post("/api/produtos/enviar-selecionados")
@@ -247,6 +418,14 @@ def enviar_produtos_selecionados(
     if not payload.item_ids:
         raise HTTPException(status_code=400, detail="Nenhum produto selecionado")
 
+    _atualizar_envio_status(
+        True,
+        item_id=payload.item_ids[0],
+        canal="fila",
+        descricao=f"Iniciando envio de {len(payload.item_ids)} produto(s) selecionado(s)...",
+        processados=0,
+        total=len(payload.item_ids),
+    )
     background_tasks.add_task(_executar_reenvio_selecionados_background, payload.item_ids, payload.dry_run)
     return {
         "sucesso": True,
@@ -307,13 +486,17 @@ def get_integracoes_status():
 
     # Instagram
     try:
-        ig_id = os.environ.get("INSTAGRAM_ACCOUNT_ID")
-        if ig_id and page_token:
-            status_dict["instagram"] = {"configurado": True, "mensagem": f"Conta {ig_id} configurada"}
-        else:
-            status_dict["instagram"] = {"configurado": False, "mensagem": "Conta Instagram ausente"}
+        from instagran.client import InstagramClient
+        ig_client = InstagramClient()
+        status_dict["instagram"] = {
+            "configurado": True,
+            "mensagem": f"Conta {ig_client.account_id} vinculada e pronta",
+        }
     except Exception as e:
-        status_dict["instagram"] = {"configurado": False, "mensagem": str(e)}
+        status_dict["instagram"] = {
+            "configurado": False,
+            "mensagem": f"Instagram não conectado: {e}",
+        }
 
     # Shopee
     try:
@@ -331,6 +514,7 @@ def get_integracoes_status():
 
 class ShopeeImportarOfertasRequest(BaseModel):
     itens: list[dict]
+    lista: Optional[str] = None
 
 
 class ShopeeGerarLinkRequest(BaseModel):
@@ -368,6 +552,10 @@ def post_shopee_importar_ofertas(payload: ShopeeImportarOfertasRequest):
     if not payload.itens:
         raise HTTPException(status_code=400, detail="Nenhum item informado para importação")
 
+    lista_nome = str(payload.lista).strip() if payload.lista else None
+    if lista_nome:
+        garantir_lista(lista_nome)
+
     total_importados = 0
     for it in payload.itens:
         item_id = str(it.get("item_id") or it.get("itemId") or "").strip()
@@ -383,14 +571,17 @@ def post_shopee_importar_ofertas(payload: ShopeeImportarOfertasRequest):
             "commission_rate": str(it.get("commission_rate") or it.get("commissionRate") or ""),
             "sales": int(it.get("sales") or 0),
             "rating_star": float(it.get("rating_star") or it.get("ratingStar") or 0.0),
+            "lista": lista_nome,
         }
         if registrar_produto(prod_data, ignorar_se_existir=False):
             total_importados += 1
 
+    msg_complemento = f" na lista '{lista_nome}'" if lista_nome else ""
     return {
         "sucesso": True,
         "total_importados": total_importados,
-        "mensagem": f"{total_importados} produto(s) importado(s) com sucesso para o banco de dados.",
+        "lista": lista_nome,
+        "mensagem": f"{total_importados} produto(s) importado(s) com sucesso para o banco de dados{msg_complemento}.",
     }
 
 
@@ -446,6 +637,17 @@ def get_arte_imagem(data: str, item_id: str, arquivo: str):
     caminho = ROOT / "db" / "img" / data / item_id / arquivo
     if not caminho.exists() or not caminho.is_file():
         raise HTTPException(status_code=404, detail="Imagem não encontrada")
+    return FileResponse(caminho)
+
+
+@app.get("/instagran/templates/{arquivo}")
+@app.get("/instgran/templates/{arquivo}")
+def get_template_asset(arquivo: str):
+    """Serve arquivos estáticos da pasta instagran/templates (como linkolandia.png)."""
+    nome_seguro = Path(arquivo).name
+    caminho = ROOT / "instagran" / "templates" / nome_seguro
+    if not caminho.exists() or not caminho.is_file():
+        raise HTTPException(status_code=404, detail="Recurso não encontrado")
     return FileResponse(caminho)
 
 

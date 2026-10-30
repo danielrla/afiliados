@@ -6,6 +6,14 @@ Este documento estabelece as diretrizes arquiteturais, operacionais e de seguran
 
 ## 1. Protocolo de Inteligência Artificial (Google Antigravity & Graphify)
 
+- **Leitura Prévia Obrigatória da Documentação (`docs/`):**
+  - Antes de planejar, refatorar ou alterar qualquer código, fluxo de publicação, template ou integração deste repositório, o agente deve **obrigatoriamente ler a documentação oficial na pasta `docs/`**:
+    - `docs/README.md` (índice geral e visão executiva do projeto).
+    - `docs/arquitetura-e-fluxos.md` (arquitetura, módulos e esquema do banco SQLite).
+    - `docs/regras-de-negocio-e-canais.md` (regras de mídia dos 6 canais, templates `instagran/templates/` e invalidação de cache).
+    - `docs/api-e-operacao.md` (contratos da API FastAPI, scripts CLI e operação Docker).
+  - Sempre que uma regra de negócio, rota de API ou fluxo de canal for modificado, a documentação correspondente em `docs/` deve ser atualizada na mesma entrega.
+
 - **Análise Prévia com Graphify (Foco Estrito em Negócio):**
   - Toda demanda complexa, refatoração ou criação de feature deve ser precedida por uma consulta estruturada via Graphify (`graphify query` ou `query_graph`).
   - **Filtro de Ruído:** Isole e alimente o modelo apenas com os nós relacionados às regras de domínio, contratos de interface (APIs/DTOs) e entidades de negócio. Exclua do grafo artefatos de infraestrutura transitória, linters, testes de cobertura e arquivos de configuração operacional.
@@ -88,7 +96,11 @@ Este documento estabelece as diretrizes arquiteturais, operacionais e de seguran
 - **Stack Backend:** `Python 3.14 / FastAPI / Uvicorn / SQLite3`
 - **Stack Frontend:** `Angular 22 / TypeScript / CSS Vanilla Modular`
 - **Banco de Dados & Migrações:** `SQLite (db/publicacoes.db gerenciado via db/controle.py)`
+- **Documentação Oficial do Projeto:** `docs/` (`docs/README.md`, `docs/arquitetura-e-fluxos.md`, `docs/regras-de-negocio-e-canais.md`, `docs/api-e-operacao.md`)
 - **Diretório das Regras de Negócio:** `db/`, `shopee/`, `facebook/`, `instagran/`, `whatsapp/`, `produtos/`
+- **Regra de Mídia por Canal:**
+  - `whatsapp` (Grupo WhatsApp) e `facebook` (Post no Feed da Página): usam **exclusivamente a imagem original extraída do link do produto (`primary_image`)**, sem aplicar template.
+  - `facebook_reels`, `instagram_stories`, `instagram_post`, `instagram_reels`: usam obrigatoriamente as artes e vídeos gerados a partir das templates em `instagran/templates/` (`template_post.html`, `template_stories.html`, `template_reels.html` com identidade Linkolândia).
 - **Variáveis Chave de Integração:**
   - URL Base Backend: `http://localhost:8000`
   - URL Base Frontend: `http://localhost:4200`

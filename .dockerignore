@@ -1,10 +1,62 @@
-__pycache__
-*.pyc
-*.pyo
-*.pyd
+# ==============================================================================
+# Docker Ignore - Afiliados Multi-Channel Hub (Backend)
+# ==============================================================================
+
+# --- Segredos, Credenciais e Arquivos Pessoais (NUNCA incluir na imagem) ---
+.env
+.env.*
+.env_daniel
+!.env.example
+anotacoes.txt
+anotacoes/
+.private/
+drafts/
+*.pem
+*.key
+
+# --- Banco de Dados Local SQLite, Dumps e Mídias Geradas ---
+db/*.db
+db/*.db-journal
+db/*.db-wal
+db/*.db-shm
+*.db
+*.sqlite3
+*.sqlite
+*.db-journal
+*.db-wal
+*.db-shm
+*.dump
+*.sql
+db/img/
+db/img/*
+instagran/img/
+instagran/stories_produto.png
+logo_1024.png
+
+# --- Contexto do Frontend e Grafo de Análise ---
+frontend/
+graphify-out/
+
+# --- Python, Caches, Testes e Git ---
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+venv/
+.venv/
+env/
+.chrome_cache/
+*.log
+logs/
+temp/
+tmp/
 .DS_Store
 .git
+.gitignore
 .agents
-frontend/node_modules
-frontend/dist
-anotacoes.txt
+.idea/
+.vscode/

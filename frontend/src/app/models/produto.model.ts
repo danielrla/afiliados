@@ -5,10 +5,18 @@
 export interface CanaisStatus {
   whatsapp?: string;
   facebook?: string;
+  facebook_reels?: string;
   instagram_stories?: string;
   instagram_post?: string;
   instagram_reels?: string;
   [key: string]: string | undefined;
+}
+
+export interface ListaItem {
+  id?: number;
+  nome: string;
+  total_produtos?: number;
+  criado_em?: string;
 }
 
 export interface Produto {
@@ -17,12 +25,24 @@ export interface Produto {
   offer_link: string;
   product_link?: string;
   price?: string;
+  image_url?: string;
   codigo_artes?: string;
-  status_geral: 'PENDENTE' | 'PARCIAL' | 'CONCLUIDO' | 'FALHA';
+  status_geral: 'PENDENTE' | 'PARCIAL' | 'CONCLUIDO' | 'FALHA' | 'ENVIANDO';
   criado_em?: string;
   atualizado_em?: string;
   pasta_artes?: string;
+  lista?: string;
   canais_status: CanaisStatus;
+}
+
+export interface EnvioStatusResposta {
+  ativo: boolean;
+  item_id_atual?: string | null;
+  item_name_atual?: string | null;
+  canal_atual?: string | null;
+  descricao_etapa?: string | null;
+  processados: number;
+  total: number;
 }
 
 export interface HistoricoLog {

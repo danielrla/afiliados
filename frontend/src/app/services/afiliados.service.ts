@@ -11,6 +11,8 @@ import {
   ShopeeOfertaItem,
   ShopeeOfertasResposta,
   ShopeeConversoesResposta,
+  ListaItem,
+  EnvioStatusResposta,
 } from '../models/produto.model';
 
 @Injectable({
@@ -35,13 +37,37 @@ export class AfiliadosService {
   }
 
   /**
-   * Obtém a lista paginada de produtos com busca e filtro de status.
+   * Obtém a lista de listas cadastradas com quantidade de produtos associados.
+   */
+  getListas(): Observable<ListaItem[]> {
+    return this.http.get<ListaItem[]>(`${this.baseUrl}/listas`);
+  }
+
+  /**
+   * Cria ou garante a existência de uma lista temática.
+   */
+  criarLista(nome: string): Observable<{ sucesso: boolean; nome: string }> {
+    return this.http.post<{ sucesso: boolean; nome: string }>(`${this.baseUrl}/listas`, { nome });
+  }
+
+  /**
+   * Exclui uma lista temática.
+   */
+  excluirLista(nome: string, desvincular: boolean = true): Observable<{ sucesso: boolean }> {
+    return this.http.delete<{ sucesso: boolean }>(`${this.baseUrl}/listas/${encodeURIComponent(nome)}`, {
+      params: new HttpParams().set('desvincular', desvincular.toString()),
+    });
+  }
+
+  /**
+   * Obtém a lista paginada de produtos com busca, filtro de status e filtro de lista.
    */
   getProdutos(
     pagina: number = 1,
     limite: number = 10,
     status?: string,
-    busca?: string
+    busca?: string,
+    lista?: string
   ): Observable<PaginacaoProdutos> {
     let params = new HttpParams()
       .set('pagina', pagina.toString())
@@ -52,6 +78,9 @@ export class AfiliadosService {
     }
     if (busca && busca.trim()) {
       params = params.set('busca', busca.trim());
+    }
+    if (lista && lista !== 'TODAS') {
+      params = params.set('lista', lista);
     }
 
     return this.http.get<PaginacaoProdutos>(`${this.baseUrl}/produtos`, { params });
@@ -77,21 +106,47 @@ export class AfiliadosService {
   }
 
   /**
+   * Consulta o estado em tempo real do envio/reenvio em segundo plano.
+   */
+  getEnvioStatus(): Observable<EnvioStatusResposta> {
+    return this.http.get<EnvioStatusResposta>(`${this.baseUrl}/produtos/envio-status`);
+  }
+
+  /**
+   * Cadastra um produto extraindo automaticamente seus metadados a partir de um link de afiliado/produto.
+   */
+  adicionarProdutoPorLink(
+    url: string,
+    lista?: string
+  ): Observable<{ sucesso: boolean; mensagem: string; produto: Produto }> {
+    const payload: { url: string; lista?: string } = { url: url.trim() };
+    if (lista && lista.trim() && lista !== 'TODAS' && lista !== 'SEM_LISTA') {
+      payload.lista = lista.trim();
+    }
+    return this.http
+      .post<{ sucesso: boolean; mensagem: string; produto: Produto }>(
+        `${this.baseUrl}/produtos/adicionar-link`,
+        payload
+      )
+      .pipe(tap(() => this.carregarEstatisticas().subscribe()));
+  }
+
+  /**
    * Dispara o reenvio cirúrgico dos canais pendentes de um produto.
    */
-  reenviarProduto(itemId: string, dryRun: boolean = false): Observable<any> {
-    return this.http.post(`${this.baseUrl}/produtos/${itemId}/reenviar`, { dry_run: dryRun });
+  reenviarProduto(itemId: string): Observable<any> {
+    return this.http.post(`${this.baseUrl}/produtos/${itemId}/reenviar`, { dry_run: false });
   }
 
   /**
    * Dispara o envio dos produtos selecionados na tabela.
    */
-  enviarSelecionados(itemIds: string[], dryRun: boolean = false): Observable<any> {
+  enviarSelecionados(itemIds: string[]): Observable<any> {
     return this.http.post(`${this.baseUrl}/produtos/enviar-selecionados`, {
       item_ids: itemIds,
-      dry_run: dryRun,
+      dry_run: false,
     }).pipe(
-      tap(() => setTimeout(() => this.carregarEstatisticas().subscribe(), 3000))
+      tap(() => setTimeout(() => this.carregarEstatisticas().subscribe(), 2000))
     );
   }
 
@@ -109,9 +164,9 @@ export class AfiliadosService {
   /**
    * Dispara o reenvio de todos os produtos pendentes/falhos em lote.
    */
-  reenviarTodosFalhas(dryRun: boolean = false): Observable<any> {
+  reenviarTodosFalhas(): Observable<any> {
     this.reenviandoLote.set(true);
-    return this.http.post(`${this.baseUrl}/produtos/reenviar-falhas`, { dry_run: dryRun }).pipe(
+    return this.http.post(`${this.baseUrl}/produtos/reenviar-falhas`, { dry_run: false }).pipe(
       tap({
         next: () => setTimeout(() => this.reenviandoLote.set(false), 3000),
         error: () => this.reenviandoLote.set(false),
@@ -161,12 +216,19 @@ export class AfiliadosService {
   }
 
   /**
-   * Importa ofertas selecionadas da Shopee diretamente para o banco de dados.
+   * Importa ofertas selecionadas da Shopee diretamente para o banco de dados, opcionalmente associando a uma lista.
    */
-  importarOfertasShopee(itens: ShopeeOfertaItem[]): Observable<{ sucesso: boolean; total_importados: number; mensagem: string }> {
-    return this.http.post<{ sucesso: boolean; total_importados: number; mensagem: string }>(
+  importarOfertasShopee(
+    itens: ShopeeOfertaItem[],
+    lista?: string
+  ): Observable<{ sucesso: boolean; total_importados: number; mensagem: string; lista?: string }> {
+    const payload: { itens: ShopeeOfertaItem[]; lista?: string } = { itens };
+    if (lista && lista.trim()) {
+      payload.lista = lista.trim();
+    }
+    return this.http.post<{ sucesso: boolean; total_importados: number; mensagem: string; lista?: string }>(
       `${this.baseUrl}/shopee/importar-ofertas`,
-      { itens }
+      payload
     ).pipe(
       tap(() => this.carregarEstatisticas().subscribe())
     );

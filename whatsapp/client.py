@@ -86,9 +86,14 @@ class ZApiClient:
     def send_to_group(self, caption: str, image_url: str | Path | None = None, group_id: str | None = None) -> dict:
         gid = group_id or os.environ.get("ZAPI_GROUP_ID")
         if not gid:
-            grp = self.find_group_by_name("Dicas Shopee")
+            grp = (
+                self.find_group_by_name("Linkolandiabr")
+                or self.find_group_by_name("Linkolandia")
+                or self.find_group_by_name("Dica Certa Shopee")
+                or self.find_group_by_name("Dicas Shopee")
+            )
             if not grp:
-                raise RuntimeError("Grupo Dicas Shopee não encontrado")
+                raise RuntimeError("Grupo 'Linkolandiabr' não encontrado na Z-API")
             gid = grp["phone"]
         if image_url:
             return self.send_image(gid, image_url, caption)
@@ -100,5 +105,5 @@ if __name__ == "__main__":
     print("== Status Z-API ==")
     print(json.dumps(client.get_status(), indent=2, ensure_ascii=False))
     print("== Buscando Grupo ==")
-    group = client.find_group_by_name("Dicas Shopee")
+    group = client.find_group_by_name("Linkolandiabr") or client.find_group_by_name("Dicas Shopee")
     print(json.dumps(group, indent=2, ensure_ascii=False))
